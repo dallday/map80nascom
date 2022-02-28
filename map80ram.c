@@ -124,6 +124,17 @@ void map80RamInitialise(){
         printf("size of NascomMonVWram ram %ld \n", sizeof NascomMonVWram);
     }
     memset(&NascomMonVWram, 0x76,sizeof NascomMonVWram );  /* Fill with the halt instruction */
+    // when nasbug T4 or nas-sys monitors start up, they restore the breakpoint byte at the
+    // breakpoint address. The effect is to write 76H to address 7676H. Usually this is not
+    // a problem. However, for the case where a command-line argument is used to load a .nas
+    // file, and that file loads 7676H, the monitor start up will corrupt the data at that
+    // address. To avoid this nastiness, set brkadr to 0 (which is read-only and so will
+    // not be affected by the write of 76H.
+    NascomMonVWram[0x0c15]=0; // nasbug T4
+    NascomMonVWram[0x0c16]=0;
+    NascomMonVWram[0x0c23]=0; // nas-sys
+    NascomMonVWram[0x0c24]=0;
+
     if (rampagedebug){
         printf("size of virtual ram %ld \n", sizeof virutalram);
     }
