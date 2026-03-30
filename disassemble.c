@@ -884,6 +884,9 @@ int disassembleprogram(FASTREG PC,
                                 case 0x60:  //ARGS
                                     strcat(disstr,"ARGS");                        
                                     break;
+                                case 0x61:  //KBD
+                                    strcat(disstr,"KBD");                        
+                                    break;
                                 case 0x62:  //IN
                                     strcat(disstr,"IN");                        
                                     break;
@@ -920,6 +923,27 @@ int disassembleprogram(FASTREG PC,
                                 case 0x6F:  //SRLX
                                     strcat(disstr,"SRLX");                        
                                     break;
+                                case 0x70:  //SRLIN
+                                    strcat(disstr,"SRLIN");                        
+                                    break;
+                                case 0x71:  //NOM
+                                    strcat(disstr,"NOM");                        
+                                    break;
+                                case 0x72:  //NIM
+                                    strcat(disstr,"NIM");                        
+                                    break;
+                                case 0x74:  //XKBD
+                                    strcat(disstr,"XKBD");                        
+                                    break;
+                                case 0x76:  //UIN
+                                    strcat(disstr,"UIN");                        
+                                    break;
+                                case 0x77:  //NNOM
+                                    strcat(disstr,"NNOM");                        
+                                    break;
+                                case 0x78:  //NNIM
+                                    strcat(disstr,"NNIM");                        
+                                    break;
                                 case 0x79:  //RLIN
                                     strcat(disstr,"RLIN");                        
                                     break;
@@ -932,14 +956,65 @@ int disassembleprogram(FASTREG PC,
                                 case 0x7C:  //CPOS
                                     strcat(disstr,"CPOS");                        
                                     break;
+                                case 0x7D:  //RKBD
+                                    strcat(disstr,"RKBD");                        
+                                    break;
                                 case 0x7E:  //SP2
                                     strcat(disstr,"SP2");                        
                                     break;
                                 case 0x7F:  //SCALI
                                     strcat(disstr,"SCALI");                        
                                     break;
+                                case 0x80:  //PolyDos additions
+                                    strcat(disstr,"DSIZE PolyDos");
+                                    break;
+                                case 0x81:
+                                    strcat(disstr,"DRD PolyDos");
+                                    break;
+                                case 0x82:
+                                    strcat(disstr,"DWR PolyDos");
+                                    break;
+                                case 0x83:
+                                    strcat(disstr,"RDIR PolyDos");
+                                    break;
+                                case 0x84:
+                                    strcat(disstr,"WDIR PolyDos");
+                                    break;
+                                case 0x85:
+                                    strcat(disstr,"CFS PolyDos");
+                                    break;
+                                case 0x86:
+                                    strcat(disstr,"LOOK PolyDos");
+                                    break;
+                                case 0x87:
+                                    strcat(disstr,"ENTER PolyDos");
+                                    break;
+                                case 0x88:
+                                    strcat(disstr,"COV PolyDos");
+                                    break;
+                                case 0x89:
+                                    strcat(disstr,"COVR PolyDos");
+                                    break;
+                                case 0x8A:
+                                    strcat(disstr,"CKER PolyDos");
+                                    break;
+                                case 0x8B:
+                                    strcat(disstr,"CKBRK PolyDos");
+                                    break;
+                                case 0x8C:
+                                    strcat(disstr,"CFMA PolyDos");
+                                    break;
+                                case 0x8D:
+                                    strcat(disstr,"SSCV PolyDos");
+                                    break;
+                                case 0x8E:
+                                    strcat(disstr,"JUMP PolyDos");
+                                    break;
+                                case 0x8F:
+                                    strcat(disstr,"POUT PolyDos");
+                                    break;
                                 default:
-                                    strcat(disstr,"????");                        
+                                    strcat(disstr,"????");
                                     break;
                             }
                             break;

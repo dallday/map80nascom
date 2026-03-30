@@ -43,7 +43,7 @@
 // this defines how much memory the Z80 can see in K
 #define RAMSIZE 64
 // this defines how much space we allow for virtual memory available to use for MMU in K
-#define VIRTUALRAMSIZE 256
+#define VIRTUALRAMSIZE 1024
 //#define VIRTUALRAMSIZE 2048
 
 // sets the size of the pages used with the Memory Management unit

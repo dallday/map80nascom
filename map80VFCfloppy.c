@@ -89,7 +89,7 @@ static int floppyMaxTrackNumber=79; // tracks 0 to 79 - the hardware device only
 static unsigned int floppyStepDirection=1;  // set to seek direction of last call
                                      // default to step in is away from track 0
 
-static char floppyBuffer[FLOPPYMAXSECTORSIZE];         // buffer to hold latest sector
+static unsigned char floppyBuffer[FLOPPYMAXSECTORSIZE];  // buffer to hold latest sector
 static unsigned int floppyBufferPosition=0;              // position in buffer for read or write
 static unsigned int floppyBufferUsed=0;                  // how many bytes are in buffer
 
@@ -122,7 +122,7 @@ static void readASector(unsigned int command);
 static void writeASector(void);
 static void readAddress(unsigned int command);
 static void showFloppySector();
-static void displayBuffer(char buffer[], int length );
+static void displayBuffer(unsigned char buffer[], int length );
 static long int floppyFindOffset(int DriveNumber,int Track, int discSide, int Sector);
 static int getSideFromCommand(unsigned int command);
 static void displayDetails(char * message);
@@ -567,7 +567,7 @@ int floppyMountDisk(unsigned int drive, char *configfilename){
 // handle all calls to the MAP80 VFC output ports
 void outPortFloppy(unsigned int port, unsigned int value){
 
-    // printf("port out %2.2X %2.2X\n",port,value);
+    printf("port out %2.2X %2.2X\n",port,value);
 
     switch (port) {
     case 0xE0:
@@ -665,7 +665,7 @@ int retval=0xFF;
         fprintf(stdout,"MAP80 VFC unhandled read on port [%2X] \n",port);
     }
 
-    //printf("port in [%2X] returned [%2X]\n",port,retval);
+    printf("port in [%2X] returned [%2X]\n",port,retval);
 
     return retval;
 
@@ -1197,8 +1197,8 @@ static int floppySetData(unsigned int value){
                 // say no more data after this
                 floppyDataRequest=0;
                 // need to actually write the sector
-                //fprintf(stdout,"write sector");
                 if (vfcfloppydisplaysectors){
+                    fprintf(stdout,"Write sector\n");
                     showFloppySector();
                 }
                 // Sector specified by floppyTrackRegister, floppySide, floppySectorRegister
@@ -1267,9 +1267,8 @@ static int floppySetData(unsigned int value){
                     // say no more data after this
                     floppyDataRequest=0;
                     // need to actually write the sector
-                    //fprintf(stdout,"write sector");
-                    printf("write track buffer\n");
                     if (vfcfloppydisplaysectors){
+                        fprintf(stdout,"Write track buffer\n");
                         showFloppySector();
                      }
                     formattrack();
@@ -1758,12 +1757,12 @@ static void readASector(unsigned int command){
                             floppyDelayForByteRequest = floppyDelayByteRequestBy; // set to delay the setting of the request data flag
                             floppyInteruptRequest=0;   // clear if all worked okay
                             if (vfcfloppydisplaysectors){
-                                fprintf(stdout,"Record read read %d, floppyBufferPosition %d, floppyBufferUsed %d\n",numberRead, floppyBufferPosition , floppyBufferUsed);
+                                fprintf(stdout,"Read sector %d, floppyBufferPosition %d, floppyBufferUsed %d\n",numberRead, floppyBufferPosition , floppyBufferUsed);
                                 showFloppySector();
                             }
                         }
                         else {
-                            // may be somethinf else but . . . .
+                            // may be something else but . . . .
                             floppyCRCError=1;
                             floppyRecordNotFound=1;
                             fprintf(stdout,"Record CRC error Read [%d] readsize [%d] \n",numberRead,readSize);
@@ -1881,46 +1880,32 @@ static void showFloppySector(){
                  floppyActiveDrive,
                  floppyDrives[floppyActiveDrive].track);
     }
-    int bufferLength = floppyBufferUsed;
-    displayBuffer( floppyBuffer, bufferLength );
-    // TODO show file name ??
-    printf("  %4d bytes \n",
-          bufferLength);
-
+    displayBuffer( floppyBuffer, floppyBufferUsed );
 }
 
-static void displayBuffer(char buffer[], int length ){
-
-    int currentPosition;
-    unsigned char currentCharacter;
-    // 16 spaces
-    int asciiPoisition=0;
-    unsigned char asciiData[]="................";
-    unsigned char asciidata=' ';
-
-    for (currentPosition = 0;currentPosition<length;currentPosition++)
-    {
-        // at start of line print address
-        if ( ( currentPosition & 0x0f ) == 0 ){
-            asciiPoisition=0;
-
-            fprintf(stdout,"  %04X:", currentPosition );
+static void displayBuffer(unsigned char buffer[], int length ){
+    int addr = 0; // could use this to show offset into disk image..
+    for (int i = 0; i<length/32; i++) {
+        fprintf(stdout,"%08x: ", addr+i*32);
+        for (int j = 0; j<32; j++) {
+            if (j%8 == 0) {
+                fprintf(stdout," ");
+            }
+            fprintf(stdout,"%02x ",buffer[i*32+j]);
         }
-        currentCharacter = buffer[currentPosition];
-        fprintf(stdout," %02X", currentCharacter );
-        asciidata = currentCharacter & 0x7F;
-        if ( ( asciidata >= 0x20 ) && ( asciidata < 0x7f ) ){
-            asciiData[asciiPoisition++]=asciidata;
+        fprintf(stdout," ");
+        for (int j = 0; j<32; j++) {
+            if (j%8 == 0) {
+                fprintf(stdout," ");
+            }
+            if ((buffer[i*32+j] < 0x7f) && (buffer[i*32+j] > 0x1f)) {
+                fprintf(stdout,"%c", buffer[i*32+j]);
+            }
+            else {
+                fprintf(stdout,".");
+            }
         }
-        else{
-            asciiData[asciiPoisition++]='.';
-        }
-
-        // are we at end of row
-        if ( ( (currentPosition+1) & 0x0f ) == 0 )
-        {
-            fprintf(stdout,"  %s\n",asciiData);
-        }
+        fprintf(stdout,"\n");
     }
 }
 

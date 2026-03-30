@@ -67,6 +67,7 @@
 #include "map80ram.h"
 #include "display.h"
 #include "map80VFCfloppy.h"
+#include "nascom4SD.h"
 #include "map80VFCdisplay.h"
 #include "sdlevents.h"
 #include "nasutils.h"   // define load program for .nas files
@@ -256,6 +257,9 @@ int main(int argc, char **argv){
     char *floppy[4];
     int numberofFloppies = -1;
 
+    char *sdcard = NULL;
+    int SDCardPresent = 0;
+
     char firstcommand[]="E0";  // used as the first command if not using biosmonitor 
 
 // fix DA moved roms to the roms folder
@@ -268,7 +272,7 @@ int main(int argc, char **argv){
     //printf("display modes\n");
     //reportdisplaymodes();
     // it returns ? if invalid option having reported invalid option
-    while ((c = getopt(argc, argv, "f:i:m:o:s:vbtxl:")) != EOF)
+    while ((c = getopt(argc, argv, "c:f:i:m:o:s:vbtxl:")) != EOF)
         switch (c) {
         case 'l':
             if (setdisassemblerrange(optarg)==1){
@@ -303,6 +307,15 @@ int main(int argc, char **argv){
             else{
                 numberofFloppies++;
                 floppy[numberofFloppies]=optarg;
+            }
+            break;
+        case 'c':
+            if (SDCardPresent){
+                printf("only 1 SDcard can be mounted\n");
+            }
+            else{
+                SDCardPresent = 1;
+                sdcard=optarg;
             }
             break;
         case '?':
@@ -483,7 +496,10 @@ int main(int argc, char **argv){
     
     
     displayfloppydetails();
-    
+
+    if (SDCardPresent) {
+        SDMountDisk(sdcard);
+    }
 
         // call to set the vfc rom\display entries
         // cpmswitchstate (set from vfcboot) acts like link4 on the hardware
@@ -538,7 +554,7 @@ void out(unsigned int port, unsigned char value)
     // change to (1) to display message
     if (0) fprintf(stdout, "Out to port %02x value %02x\n", port, value);
 
-    if ( (port & 0x80) == 0 ) {
+    if ( (port & 0xF0) == 0 ) {
         switch (port & 0x0F) {
         case 0:
 
@@ -583,6 +599,14 @@ void out(unsigned int port, unsigned char value)
     }
     else {
         switch (port & 0xFF) {
+        case 0x10:
+        case 0x11:
+        case 0x12:
+        case 0x13:
+        case 0x14:
+            outPortSD( port,value);
+            break;
+
         // clock card PIO ports - for Chris's version
         case 0x88:
             crtc_PIOportadata_write( port,value);
@@ -647,7 +671,6 @@ void out(unsigned int port, unsigned char value)
                 fprintf(stdout, "Unknown output to port %02x value %02x\n", port, value);
             }
         }
-    
     }
 }
 
@@ -658,7 +681,7 @@ int in(unsigned int port)
 
     int retval=0xFF;
     
-    if ( (port & 0x80) == 0 ) {
+    if ( (port & 0xF0) == 0 ) {
         switch (port & 0x0F) {
         case 0:
             retval=inPort0Keyboard();
@@ -688,8 +711,16 @@ int in(unsigned int port)
     }
     else {
         switch (port & 0xFF) {
-    
-        // clock card PIO ports - for Chris's version
+
+        case 0x10:
+        case 0x11:
+        case 0x12:
+        case 0x13:
+        case 0x14:
+            retval=inPortSD(port);
+            break;
+
+            // clock card PIO ports - for Chris's version
         case 0x88:
             retval=crtc_PIOportadata_read(port);
             break;
