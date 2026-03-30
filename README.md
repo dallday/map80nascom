@@ -1,4 +1,4 @@
-MAP 80 Nascom Version 8 April 2021
+MAP 80 Nascom Version 8.1 March 2026
 ========================================
 
     https://github.com/dallday/map80nascom
@@ -7,6 +7,11 @@ This emulator is designed to work like my Nascom2 setup with
     MAP80 256k Ram card
     MAP80 VFC card
     CHS Clock card at port #D0-D4
+
+Note as of 30 march 2026 (ver 8.1) it has been updated to add support for NASCOM4 SDcard interface.
+This was provided by Neal Crook who designed the N4 system.
+For more details on using it see his N4 documentation.
+
 
 on start up it automatically loads to following files from the roms folder
 * roms/nassys3.nas   - used without the -b, the NASSYS3 monitor rom
