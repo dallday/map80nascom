@@ -141,6 +141,9 @@ extern FASTWORK simz80(FASTREG PC, int, int (*)());
 // fix DA - original was for 4k pages
 //#define RAM(a)		*(pagetable[((a)&0xffff)>>12]+((a)&0x0fff))
 // need to define based on 2k pages and for a bigger virtual space
+// This defines how we work out the actual address of the byte we want in memory
+//      the entry in the rampagetable + the offset
+
 #define RAM(a)		*(rampagetable[((a)>>RAMPAGESHIFTBITS) & RAMPAGETABLESIZEMASK] + ((a) & RAMPAGEMASK) )
 
 static inline unsigned char

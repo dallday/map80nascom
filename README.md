@@ -17,7 +17,9 @@ on start up it automatically loads to following files from the roms folder
 * roms/nassys3.nas   - used without the -b, the NASSYS3 monitor rom
 * roms/vfcrom0.nas   - used with the -b option, the rom file for the MAP80 VFC to boot into cpm
 
-There are some other "roms" that can be loaded by specifing them in the command line used to call the program.
+There are some other "roms" that can be loaded by specifing them in the command line used to call the program.  
+Note; files end .rom will be loaded into their own Read only memory and will not be swapped out.
+
 
 * roms/basic.rom              - Nascom basic loaded into ram at 0xE000.
 * roms/PolyDos_2_Boot_ROM.rom - Polydos 2 boot rom loaded into ram at 0xD000
@@ -31,6 +33,7 @@ To load polydos 2 enter
 
 To run cpm 2.2 enter
 ./map80nascom -f disks/cpm001system22.config -b 
+
 
 
 INSTALLATION
@@ -175,7 +178,7 @@ And thanks to Neal Crook for his support and the copy of PolyDos2
 
 KNOWN ISSUES
 ------------
-* Tommy Thorn sais that *Galaxy Attack* did not work on Virtual Nascom.
+* Tommy Thorn said that *Galaxy Attack* did not work on Virtual Nascom.
 
     It does work on map80nascom :)
 
