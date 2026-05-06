@@ -531,7 +531,8 @@ int floppyMountDisk(unsigned int drive, char *configfilename){
         }
 
         if (notimplemented==1){
-            if (verbose){
+            // da apr 2026 changed to vfcfloppydebug
+            if (vfcfloppydebug){
                 printf("Mount Floppy drive - config line %d keyword='%s' not yet implemented\n",filelinenumber, keyword);
             }
         }
@@ -567,7 +568,10 @@ int floppyMountDisk(unsigned int drive, char *configfilename){
 // handle all calls to the MAP80 VFC output ports
 void outPortFloppy(unsigned int port, unsigned int value){
 
-    printf("port out %2.2X %2.2X\n",port,value);
+    // da apr 2026 changed to vfcfloppydebug
+    if (vfcfloppydebug){
+        printf("port out %2.2X %2.2X\n",port,value);
+    }
 
     switch (port) {
     case 0xE0:
@@ -664,9 +668,10 @@ int retval=0xFF;
     default:
         fprintf(stdout,"MAP80 VFC unhandled read on port [%2X] \n",port);
     }
-
-    printf("port in [%2X] returned [%2X]\n",port,retval);
-
+    // da apr 2026 changed to use vfcfloppydebug
+    if (vfcfloppydebug){
+        printf("port in [%2X] returned [%2X]\n",port,retval);
+    }
     return retval;
 
 
@@ -803,6 +808,7 @@ static int floppySetCommand(unsigned int value){ // call to set command register
 
     // a long bit of code . . . . .
 
+    // da apr 2026 change to use vfcfloppydebug
     if (vfcfloppydebug){
         displayCommand(value);
     }
@@ -1216,7 +1222,8 @@ static int floppySetData(unsigned int value){
                 }
                 else { // invalid floppy number
                     floppyRecordNotFound = 1;
-                    if (verbose){
+                    // DA Apr 2026 changed to vfcfloppydebug
+                    if (vfcfloppydebug){
                         fprintf(stdout,"write sector:- Invalid drive no %d\n",floppyActiveDrive);
                     }
                 }
@@ -1775,8 +1782,9 @@ static void readASector(unsigned int command){
     }
     else { // no disk mounted in drive TODO what error
         floppyRecordNotFound = 1;
-        if (verbose) {
-            // fprintf(stdout,"no disk mounted\n");
+        // da apr 2026 changed to vfcfloppydebug
+        if (vfcfloppydebug) {
+            fprintf(stdout,"no disk mounted\n");
         }
 
     }
@@ -1847,7 +1855,8 @@ static void writeASector(void){
         }
         else { // no disk mounted in drive TODO what error
             floppyRecordNotFound = 1;
-            if (verbose){
+            // da apr 2026 changed to vfcfloppydebug
+            if (vfcfloppydebug){
                 fprintf(stdout,"no disk mounted in drive %d\n",floppyActiveDrive);
             }
 
@@ -1855,7 +1864,8 @@ static void writeASector(void){
     }
     else { // invalid floppy number
         floppyRecordNotFound = 1;
-        if (verbose){
+        // da apr 2026 changed to vfcfloppydebug
+        if (vfcfloppydebug){
             fprintf(stdout,"Invalid drive no %d\n",floppyActiveDrive);
         }
     }

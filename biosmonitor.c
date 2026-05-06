@@ -54,14 +54,20 @@ int editMemory(void){
     int argvalue;
 
     char inputdata[101];
-    
+    char * ReturnPointer;
     while (true){
         CurrentAddress=StartAddress;
         printf("%4.4X  %2.2X",CurrentAddress,RAM(CurrentAddress));
-        
-        fgets( inputdata, 100, stdin );
-        
-        printf("input %s\n",inputdata);
+        // da apr 2026 - added checking the returned value in case over overflow :)        
+        ReturnPointer=fgets( inputdata, 100, stdin );
+        if (ReturnPointer == NULL ){
+            printf("error getting stdin data");
+        }
+        else {
+            // used this to check that the returned pointer was the same address as my buffer
+            printf("ReturnPointer %p and cwd %p \n",ReturnPointer,inputdata);
+            printf("input %s\n",inputdata);
+        }
         
         while (true){
             argvalue=0;
@@ -275,22 +281,39 @@ int MAP80nascomMonitor(char * FirstCommand){
 // process user input
     int doFirstCommand=0;
     char commandstr[101]="";
+    char * ReturnPointer;
+    // if a command was passed over then execute it first
+    // by  setting doFirstCommand
+    // this skips the request for input 
+    // but does reset doFirstCommand so that the second time it will ask for a command 
+    // the external variable usebiosmonitor is used to exit if we dont want to use the bios monitor
     if (strlen(FirstCommand)>0){
         strcpy(commandstr,FirstCommand);
         doFirstCommand=1;
     }
+    // On starting simulator, refresh the screen 
+    sim_delay();
 
     for(;;){
 
         if (doFirstCommand==0){
             printf( "Bios:");
-            fgets( commandstr, 100, stdin );
+            // da apr 2026 - added checking the returned value in case over overflow :)        
+            ReturnPointer=fgets( commandstr, 100, stdin );
+            if (ReturnPointer == NULL ){
+                printf("error getting stdin data");
+            }
+            else {
+                // used this to check that the returned pointer was the same address as my buffer
+                // printf("ReturnPointer %p and cwd %p \n",ReturnPointer,commandstr);
+                 printf( "\nYou entered: ");
+                 puts( commandstr );
+            }
+            //    fgets( commandstr, 100, stdin );
         }
         else{
             doFirstCommand=0; // reset first command control
         }
-//        printf( "\nYou entered: ");
-//        puts( commandstr );
 
         if (strlen(commandstr) > 0 ){
             if(commandstr[0] != ' ' ){
@@ -363,7 +386,9 @@ int MAP80nascomMonitor(char * FirstCommand){
                         // On return from simulator, refresh the screen one last
                         // time, in order to see any final output eg before a HALT
                         sim_delay();
-
+                        // external global variable to say if we need to use the monitor 
+                        // TODO remove it and handle it if E0 first command then return 
+                        // maybe ???
                         if (usebiosmonitor==0){
                             return 0;
                         }
@@ -387,6 +412,7 @@ int MAP80nascomMonitor(char * FirstCommand){
                                "T xxxx yyyy  output memory from address xxxx to yyyy\n"
                                "X to exit\n"
                                );
+                        break;
                     default:
                         printf("unknown command %s\n",commandstr);
                         break;

@@ -44,7 +44,8 @@ void displaytapestatus(void){
     char nodata[]="no input data available   ";
     char * displaynodata=nodata;
     // buffer to build strings into 
-    char strBuffer[100];
+    // da apr 2026 increased size to avoid overflow
+    char strBuffer[150];
     // build filename string into 
     char strserialname[100];
 

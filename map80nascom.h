@@ -1,7 +1,7 @@
 #ifndef MAP80NASCOM_H
 #define MAP80NASCOM_H 1
 
-#define VERSION "8"
+#define VERSION "8.1"
 #define YAZEVERSION "1.10"
 
 // #define INSCREEN(x) (((x) >> 10) == 2)

@@ -1,4 +1,7 @@
-/*   Virtual Nascom, a Nascom II emulator.
+/*
+     This is from http://github.com/tommythorn/virtual-nascom.git
+
+     Virtual Nascom, a Nascom II emulator.
 
      Copyright (C) 2000,2009,2017,2018  Tommy Thorn
 
@@ -36,6 +39,11 @@
   screen memory.  The "correct" way to simulate screen memory is to
   trap upon writes, but that would be slow.  We do it any just to get
   started.
+*/
+
+/* 
+  changes made for map80nascom which adds mapped memory, floppy drives and vfc screens
+   added the debugger routines plus the bios monitor.
 
   DA changes
   Couple of "fixes" in the simz80.c to correct couple of bugs
@@ -48,6 +56,16 @@
   change the PutWORD routine so it does PutBYTE twice.
 
   added Memory Management Unit (MMU) based om MAP80 256k Ram card.
+
+  version 8.1 - updated by Neal Crook for N4 (nascom4SD.c nascom4SD.h)
+        added extra SCAL options to the dissassembler process
+        tweeks to the map80VFCfloppy.c routines
+        increased the virtual ram to 1024 k (options.h)
+        Fixed the loading of .nas files
+            Old code required 8 data + checksum per line. If the checksum was
+            missing it would grab a value from the next line and then gobble/discard
+            that line. New code accepts 1-9 bytes of data and only checksums if
+            all 9 are present. Refactored to share code between both load routines.     
 
  *  This code contains the main function plus handles all initial port inputs and outputs
  * 
@@ -341,8 +359,8 @@ int main(int argc, char **argv){
     // fix DA - added F1 triggers NMI
 
     puts("MAP80 Nascom, a Nascom 2 emulator version " VERSION "\n"
-         "with MAP80 256 ram, MAP80 VFC display and floppy card\n"
-         "and CHS clock card.\n");
+         "with MAP80 256 ram, MAP80 VFC display and floppy card,\n"
+         "CHS clock card and Neals N4 SD card.\n");
     if (verbose){
          puts("Copyright (c) David Allday 2021\n"
          "Uses code base from Virtual Vascom \n"
@@ -363,8 +381,17 @@ int main(int argc, char **argv){
 
     if (verbose){
         char cwd[FILENAME_MAX]; //create string buffer to hold path
-        getcwd( cwd, FILENAME_MAX );
-        printf("Current directory is '%s'\n",cwd);
+        // DA Apr 2026 added to check return from getcwd
+        char* ReturnPointer;
+        ReturnPointer=getcwd( cwd, FILENAME_MAX );
+        if (ReturnPointer == NULL ){
+            printf("error getting current directory");
+        }
+        else {
+            // used this to check that the returned pointer was the same address as my buffer
+            // printf("ReturnPointer %p and cwd %p \n",ReturnPointer,cwd);
+            printf("Current directory is '%s'\n",cwd);
+        }
     }
     
     if (sdl_initialise()){
