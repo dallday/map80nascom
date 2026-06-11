@@ -51,7 +51,12 @@ ROMS loaded
 on start up it automatically loads to following files from the roms folder
 * roms/nassys3.nas       - used with the -n option, the NASSYS3 monitor rom
 * roms/vfcrom0.nas       - used with the -v option, the rom file for the MAP80 VFC to boot into cpm
-* roms/z80_sboot_rom.nas - used with the -4 option, the rom for the N4 boott loader
+* roms/z80_sboot_rom.nas - used with the -4 option, the rom for the N4 boot loader
+
+It will try and load the SD image used by the N4 mode 
+* roms/nascom4_sdcard.img  
+
+Note: at present you will need to unpack the imag from roms/nascom4_sdcard.img.zip
 
 There are some other "roms" that can be loaded by specifing them in the command line used to call the program.  
 Note; files end .rom will be loaded into their own Read only memory and will not be swapped out.
@@ -166,39 +171,43 @@ The emulator works with the cpm2.2 and cpm3 floppys in the disks folder.
 Nascom 4 Mode (option -4)
 -------------------------
 
-Using the -4 option the emulator can emulate many of the features of the N4. 
+Using the -4 option the emulator can emulate many of the features of the N4.  
 
-The SD card needs to be specified 
+The SD card needs to be specified to get the functions to work  
+see roms/nascom4_sdcard.img.zip  
+you will need to unzip the image into the rom folder.  
+
+See Neal Crook's guide at https://github.com/nealcrook/nascom/tree/master/nascom4  
 
 
 
 Serial Input and Output:
 -----------------------
 
-The `-i` option allows you to have a serial input file - normally a .cas file.
-This will be used as input when the R command is used in NASSYS3. Note:- F3 resets the input file.
-The name of and the position in the input file is show in the status window.
+The `-i` option allows you to have a serial input file - normally a .cas file.  
+This will be used as input when the R command is used in NASSYS3. Note:- F3 resets the input file.  
+The name of and the position in the input file is show in the status window.  
 
-The `-o` option allows you to specify where serial output will be saved.
-All serial output is appended to the file, e.g. the W command in NASSYS3.
-If no file is specified then the output is lost.
-The output file may be fed back in on a subsequent launch via the `-i` option.
-The name of and the position in the output file is show in the status window.
+The `-o` option allows you to specify where serial output will be saved.  
+All serial output is appended to the file, e.g. the W command in NASSYS3.  
+If no file is specified then the output is lost.  
+The output file may be fed back in on a subsequent launch via the `-i` option.  
+The name of and the position in the output file is show in the status window.  
 
-The files are not locked except during actual read or write operations.
-This allows you to change the files at any time.
-
-You can also use the same file as input and output. 
+The files are not locked except during actual read or write operations.  
+This allows you to change the files at any time.  
+  
+You can also use the same file as input and output.   
 
 In linux it is possible to use the ln command to link an input file to a standard
-filename.
+filename.  
 
 Floppy Discs
 ------------
 
-The emulator is able to use a number of virtual floppy formats.
+The emulator is able to use a number of virtual floppy formats.  
 
-The details of the image are stored in a .config file which details
+The details of the image are stored in a .config file which details  
 
 * where the actual image file is 
 * the format of the image file
@@ -207,9 +216,9 @@ The format of the image file is specified in the same way as Flash Floppy does i
 
 See the Disks folder for more details.
 
-The `-f` option specifies which configs to use.
-The first entry is used for drive 0, the second is used for drive 1 etc.,
-It can handle up to 4 drives.
+The `-f` option specifies which configs to use.  
+The first entry is used for drive 0, the second is used for drive 1 etc.,  
+It can handle up to 4 drives.  
 
 Debugging info ( option -d)
 ---------------------------
