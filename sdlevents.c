@@ -21,15 +21,17 @@
 #include "sdlevents.h"
 #include "serial.h"
 
-int showkeymatrix=SHOWKEYMATRIX;
-int displaykeyvalues=DISPLAYKEYVALUES;
+// set values done in map80nascom.c
+//int showkeymatrix=SHOWKEYMATRIX;
+//int displaykeyvalues=DISPLAYKEYVALUES;
 
 // define which key processing routine is used.
-static void handle_key_event_dwim(SDL_Keysym keysym, bool keydown);
-static void handle_key_event_raw(SDL_Keysym keysym, bool keydown);
+// DA N4 added shiftdowmn so we can use more function keys
+static void handle_key_event_dwim(SDL_Keysym keysym, bool keydown,bool shiftdown);
+static void handle_key_event_raw(SDL_Keysym keysym, bool keydown,bool shiftdown);
 
 // fix DA changed start keyboard type
-static void (*handle_key_event)(SDL_Keysym, bool) = handle_key_event_dwim;
+static void (*handle_key_event)(SDL_Keysym, bool, bool ) = handle_key_event_dwim;
 static int rawkeyboard=0; // set to 1 if using raw keyboard
 
 // SDL initialize everything
@@ -77,7 +79,9 @@ void ui_serve_input(void)
         case SDL_KEYUP:
             // key up or key down event
             // send the keycode, true if keydown event else false
-            handle_key_event(event.key.keysym, event.type == SDL_KEYDOWN);
+            // DA how to identify if shift down ????
+            // TODO 
+            handle_key_event(event.key.keysym, event.type == SDL_KEYDOWN,false);
             break;
         case SDL_QUIT:
             printf("Quit\n");
@@ -225,7 +229,7 @@ kbd_spec_w_ctrl   [] = "{" ___ ___    ___ ___ ___ ___ ___    ___ ___ ___  ___ __
 static const char
 kbd_spec_w_shctrl [] = ___ ___ ___    ___ "}" "|" "~" "\177" ___ ___ ___  ___ ___ ___ ___ ___ ___ ___ ___;
 
-// typedef enum { CONT = 0, RESET = 1, DONE = -1 } sim_action_t;
+// typedef enum { CONT = 0, RESET = 1, WARMRESET=2, DONE = -1 } sim_action_t;
 sim_action_t action = CONT;
 
 // Ctr-Shift-Meta 0 -> the REAL # (instead of the pound symbol)
@@ -234,8 +238,10 @@ sim_action_t action = CONT;
 /*
    handle the Function keys
 */
-static void handle_app_control(SDL_Keysym keysym, bool keydown)
+static void handle_app_control(SDL_Keysym keysym, bool keydown, bool shiftdown)
 {
+
+    //fprintf(stdout,"Shift key is [%02x] \n",shiftdown);
     if (keydown)
         switch (keysym.sym) {
         case SDLK_END: {
@@ -258,52 +264,71 @@ static void handle_app_control(SDL_Keysym keysym, bool keydown)
             break;
 
         case SDLK_F2:
-            if (traceon==1){
-                traceon=0;
-            }
-            else {
-                traceon=1;
+            action = WARMRESET;
+            // this will do a "warm" reset for the N4 style code
+            // see code simz80 as needed to set other stuff for N4 etc.,
+            printf("Warm reset requested\n");
+            break;
+
+        case SDLK_F3:
+            action = RESET;
+            // this will reset PC to 0 need to reset hardware
+            //out(0xFE,0); // reset paging on MAP80RAM card
+            //out(0xEC,0); // reset paging on MAP80VFC
+            // see code simz80 as needed to set other stuff for N4 etc.,
+            printf("cold reset requested\n");
+            break;
+
+        case SDLK_F4:
+            // close emulator
+            action = DONE;
+            if (shiftdown){
+                usebiosmonitor=1;
             }
             break;
-        case SDLK_F3:
+
+        case SDLK_F5:
             // reset serial in
             resetserialinput();
             break;
 
-        case SDLK_F4:
-            action = DONE;
+
+
+        case SDLK_F6:
+            tape_led = tape_led_force ^= 1;
+            printf("Tape led forced on\n");
             break;
 
-        case SDLK_F5:
+        case SDLK_F7:
+            if (traceon==1){
+                traceon=0;
+                printf("Trace off\n");
+            }
+            else {
+                traceon=1;
+                printf("Trace on\n");
+            }
+            break;
+
+        case SDLK_F8:
             go_fast = !go_fast;
             printf("Switch to %s\n", go_fast ? "fast" : "slow");
             // has no impact as t_sim_delay only used on call to simz80 ????
             t_sim_delay = go_fast ? FAST_DELAY : SLOW_DELAY;
             break;
 
-        case SDLK_F6:
-            tape_led = tape_led_force ^= 1;
-            break;
-
         case SDLK_F9:
-            action = RESET;
-            // this will reset PC to 0 need to reset hardware
-            out(0xFE,0); // reset paging on MAP80RAM card
-            out(0xEC,0); // reset paging on MAP80VFC
-            break;
-
-        case SDLK_F10:
-            if (handle_key_event == handle_key_event_raw){
-                handle_key_event = handle_key_event_dwim;
-                rawkeyboard=0;
-            }
-            else{
-                handle_key_event = handle_key_event_raw;
-                rawkeyboard=1;
-            }
-            printf("Switch to %s keyboard\n",
-                   handle_key_event == handle_key_event_raw ? "raw" : "dwim");
-            break;
+                if (handle_key_event == handle_key_event_raw){
+                    handle_key_event = handle_key_event_dwim;
+                    rawkeyboard=0;
+                }
+                else{
+                    handle_key_event = handle_key_event_raw;
+                    rawkeyboard=1;
+                }
+                printf("Switch to %s keyboard\n",
+                       handle_key_event == handle_key_event_raw ? "raw" : "dwim");
+                break;
 
         default:
             ;
@@ -335,12 +360,14 @@ static void handle_app_control(SDL_Keysym keysym, bool keydown)
 * 
 */
 
-static void handle_key_event_dwim(SDL_Keysym keysym, bool keydown)
+static void handle_key_event_dwim(SDL_Keysym keysym, bool keydown, bool shiftdown)
 {
     int i = -1, bit = 0;
+    // these are the states from the "real" keyboard
     static bool ui_shift = false;
     static bool ui_ctrl  = false;
     static bool ui_graph = false;
+    // not sure DA - think the emu are for emulation of the nascom keyboard
     bool emu_shift = false;
     bool emu_ctrl  = false;
     bool emu_graph = false;
@@ -506,7 +533,7 @@ static void handle_key_event_dwim(SDL_Keysym keysym, bool keydown)
 
                 switch (keysym.sym) {
                     default:
-                        handle_app_control(keysym, keydown);
+                        handle_app_control(keysym, keydown, ui_shift);
                         break;
                 }
             }
@@ -583,7 +610,7 @@ on US keyboards
 
 */
 
-static void handle_key_event_raw(SDL_Keysym keysym, bool keydown)
+static void handle_key_event_raw(SDL_Keysym keysym, bool keydown, bool shiftdown)
 {
     int i = -1, bit = 0;
     
@@ -665,7 +692,7 @@ static void handle_key_event_raw(SDL_Keysym keysym, bool keydown)
                         i = 0, bit = 1; break; // return/enter key  main keyboard
         default:
             // not one for Nascom so check if emulator control key
-            handle_app_control(keysym, keydown);
+            handle_app_control(keysym, keydown,shiftdown);
         }
     }
     // having identified the bit required

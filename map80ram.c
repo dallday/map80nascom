@@ -23,7 +23,7 @@
 int rampagedebug=0;
 
 void displayRamTable();
-
+void resetMemoryPages();
 
 /* handle the page mapping required for the MAP80 256k ram card
    bit 0   set selects upper 32k    ) only if in 32k mode
@@ -52,12 +52,15 @@ void displayRamTable();
 // using Memory Management Unit we have a set of pointers to point to ram
 // each entry in ramapagetable points to the start of a page in ram
 // will be 2k if PAGESIZE is 2
+// May 2026 DA N4 switched to PAGESIZE is 2 and 1k pages 
 // For Nascom areas the rampagetable entry will be pointing at special memory area
 // Then the ramlocktable will be set to 1 stop the memory management system changing to this pointer
 // For ROMS the ramromtable will be set to 1 to stop writes to that memory area.
 BYTE *rampagetable[RAMPAGETABLESIZE];
 // we need a second table of pointers for the ram if the RAMDISABLE from Nascom was not active
 // It will point to the address in ram to use if MAP80 256k card was the active memory.
+// DA N4 - not sure but this should be the current "mapped" address 
+// so we can put it back if another area is taken out
 BYTE *ramdefaultpagetable[RAMPAGETABLESIZE];
 // this is the total ram space to be used for memory management
 BYTE virutalram[VIRTUALRAMSIZE*1024];
@@ -68,8 +71,11 @@ BYTE virutalram[VIRTUALRAMSIZE*1024];
 // i.e. that area is a ROM
 // set to 1 for permanent ROM - i.e. monitor
 // set to 2 for temporary when page mapping attempted past end of virtual memory
+// set to what it should be what ever ram/rom page may be overlaying it
+// this is then used if the overlating rom/ram is removed
+int ramromdefaulttable[RAMPAGETABLESIZE];
+// this is what is set if the ram/rom page is not overlaying it
 int ramromtable[RAMPAGETABLESIZE];
-
 // ram lock table is set to 0 if you can change it's pointer in rampagetable
 // otherwise the rampagetable will not be changed
 // acts like the N2 ram disable line.
@@ -80,7 +86,13 @@ int ramlocktable[RAMPAGETABLESIZE];
 
 // next 2 areas only referenced in virutal-nascom code
 // defines some space for NASCOM Monitor ROM, video ram and working Ram
-BYTE NascomMonVWram[4*1024];
+// DA N4 - added SBROM to the end of NascomMonVWram so +1000
+// changed mind again 
+BYTE NascomMonVWram[5*1024];
+
+// DA N4
+// area for the SBROM for N4
+BYTE SBROM[1*1024];
 
 // this area of ram is set to show that ram does not exist
 // rampagetable can be pointed at it and it will return dummy value
@@ -96,12 +108,11 @@ BYTE vfcrom[2*1024];
 BYTE vfcdisplayram[2*1024];
 
 
+
  // intialise the map80 memory card.
 void map80RamInitialise(){
 
-
-
-    // intialise rampagetable to point at the first 64k of ram
+    // intialise rampagetable and ramdefaultpagetable to point at the first 64k of ram
     for (int c=0; c< (RAMPAGETABLESIZE) ; ++c) {
         // first the default table if no ramdisable is active
         ramdefaultpagetable[c]=virutalram+(c<<RAMPAGESHIFTBITS);
@@ -112,7 +123,11 @@ void map80RamInitialise(){
             fprintf(stdout, "rampagetableindex [%02x], ram [%p], ram address [%p] \n",
                            c, virutalram, rampagetable[c] );
         }
-
+        // DA N4 initialise the ramromtable and ramlocktable
+        // set so they can be mapped and written to
+        ramromtable[c]=0;
+        ramromdefaulttable[c]=0;
+        ramlocktable[c]=0;
     }
 
     // sets the memory used to tell us we are not in real memory
@@ -173,10 +188,12 @@ void map80Ram(unsigned char value){
 
     // rampagetable entry
     // starts at 0 - there is only 32 (64 / 2) entries
+    // DA N4 now doing 1k pages so 64 not 32
     int rampagetableindex = 0;
 
     // number of pages to update if in 64k mode ( 64/2 ) = 32
-    int numberToUpdate = 32;
+    // DA N4 now doing 1k pages so 64 not 32
+    int numberToUpdate = 64;
 
     if (rampagedebug){
         // debug to show values generated
@@ -189,13 +206,14 @@ void map80Ram(unsigned char value){
     // check if 32 or 64k mode
     if ( (value & 0x80) == 0x80 ) {
         // 32k page mode as bit 7 set
-        numberToUpdate = 16; // we move fewer entries in 32k mode
+        numberToUpdate = 32; // DA N4 now 32 not 16 we move fewer entries in 32k mode
         // check if updating the upper or lower 32k entries in rampagetable
         // start address is correct if updating the lower 32k
         if  ( (value & 0x40) != 0x40 ){
             // lower 32k is fixed - update the entries in the 32k of rampagetable
             // need to move the rampagetableindex up 32 / 2 = 16 slots
-            rampagetableindex += 16;
+            // DA N4 now 1k so 64 slots /2 = 32
+            rampagetableindex += 32;
         }
 	// check if moving in the lower or upper 32k of that page
         // if moving in the lower than already set
@@ -231,7 +249,26 @@ void map80Ram(unsigned char value){
             fprintf(stdout, "Ramdefault Index [%02X], set to  [%p] \n",
                    tableindex, ramaddress );
         }
+        if (ramaddress == dummyram){
+            // stop writing as a dummy area
+            // set to prevent r/w
+            // if it is rom it would also have ramlocktable set
+            // use 2 for debug purposes
+            // DA N4 - changed to or in case other bits are set 
+            // this will set bit 2 but leave the rest alone
+            // not sure ?
+            // DA N4 introduced the ramromdefaulttable[]
+            //  as now might have roms being disabled
+            ramromdefaulttable[tableindex] |= 0x02;
 
+        } else {
+            // allow the area r/w in case it was set last time
+            // DA N4 - changed to and in case other bits are set 
+            // will reset bit 2 only ( FD == FF-2)
+            // allow read write
+            ramromdefaulttable[tableindex] &= 0xFD;
+        }
+        
         if ( ramlocktable[tableindex] == 0 ) {
             // the ram is not locked so update the pointer
             rampagetable [tableindex] = ramaddress;
@@ -240,21 +277,16 @@ void map80Ram(unsigned char value){
                 fprintf(stdout, "Rampage Index [%02X], set to  [%p] \n",
                        tableindex, ramaddress );
             }
-            // set lock mode
-            if (ramaddress == dummyram){
-                // set to prevent r/w
-                // if it is rom it would also have ramlocktable set
-                // use 2 for debug purposes
-                ramromtable[tableindex] = 2;
-            } else {
-                // allow the area r/w in case it was set last time
-                ramromtable[tableindex] = 0;
-            }
+            // set lock mode from default mode
+            ramromtable[tableindex] =ramromdefaulttable[tableindex];
         }
+
         // now move on ram address - if needed
         if (ramaddress != dummyram){
             // increment the ram address by 2k for the next table entry
-            ramaddress += 2048;
+            // DA N4 MAY 2026 now using 1k pages 
+            // should the increment be a varable or defined
+            ramaddress += 1024;
         }
 
     }
@@ -269,16 +301,57 @@ void map80Ram(unsigned char value){
 
 void displayRamTable(){
 
-
+    fprintf(stdout,"pampagetable where not default value\n");
+    fprintf(stdout," fullramarea address [%p] \n",  virutalram );
     for (int c=0; c< (RAMPAGETABLESIZE) ; ++c) {
         unsigned int offset1 = rampagetable[c]-virutalram;
         unsigned int offset2 = ramdefaultpagetable[c]-virutalram;
-        fprintf(stdout, "rampagetableindex [%02x], ram [%p], ram address [%4.4X] default [%4.4X] \n",
-                           c, virutalram, offset1, offset2 );
+        // display if any of the bits are nor the default values 
+        if ((offset1 != offset2)||(ramlocktable[c]!=0x0)||(ramromtable[c]!=0x0)){
+        /*    
+            fprintf(stdout, "rampagetableindex [%02x], Lock [%02x], Rom [%02x], ram [%p], ram address [%4.4X] default offset [%4.4X] \n",
+                           c, 
+                           ramlocktable[c],ramromtable[c],
+                           virutalram, rampagetable[c]-0, offset2 );
+          */                 
+            fprintf(stdout, "rampagetableindex [%02x], Address [%04x], Lock [%02x], Rom [%02x], ram address [%p] default [%p] \n",
+                           c, c<<RAMPAGESHIFTBITS,
+                           ramlocktable[c],ramromtable[c],
+                           rampagetable[c], ramdefaultpagetable[c] );
+        }
     }
 
 
 
 }
 
+/*
+ * routine to ensure all rampagetable entries are set to default values
+ * used at the start of cold or warm restart 
+ * this ensures that any ram paging is put back to where it should be
+ * problem is when basic.rom etc has been loaded and we need to not clear those areas
+ * 
+ */
 
+void resetMemoryPages(){
+
+    // set all the default memory pages back to page 0
+    
+    for (int c=0; c< (RAMPAGETABLESIZE) ; ++c) {
+        ramdefaultpagetable[c]=virutalram+(c<<RAMPAGESHIFTBITS);
+    }
+    
+    for (int c=0; c< (RAMPAGETABLESIZE) ; ++c) {
+        // check if rom active 
+        if (ramlocktable[c]==0){
+            // set the memory pointers to default values
+            rampagetable[c] = ramdefaultpagetable[c];
+        }
+    }
+    
+    
+}
+
+
+
+// end of code

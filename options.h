@@ -17,23 +17,7 @@
 // 1 = uk keyboard
 #define KEYBOARDTYPE 1
 
-// set to 1 to show debug details for the vfc display
-#define VFCDISPLAYDEBUG 0   
 
-// set to 1 to display floppy debug details
-#define VFCFLOPPYDEBUG 0
-// set to 1 to display floppy sectors read and written
-#define VFCFLOPPYDISPLAYSECTORS 0
-
-// set to 1 to show the nascom keyboard matrix each time nassys does a keyboard scan.
-// displayed when it does an index reset.
-#define SHOWKEYMATRIX 0
-
-// shows the sdl key values during processing
-#define DISPLAYKEYVALUES 0
-
-// display clock card processing
-#define CHSCLOCKCARDDEBUG 0
 
 // define to use Memory Management unit
 // #define MMU 1
@@ -53,7 +37,9 @@
 // replaced the original 4 hard coded in the original
 // also makes it easier to protect monitor ROM
 // and stop monitor rom, video and working ram from being swapped out
-#define RAMPAGESIZE (2)
+// DA N4 switched to 1k pages as N4 had seperate controls for 
+// Vram and Wram in the area NascomMonVWram
+#define RAMPAGESIZE (1)
 
 // defines the ram_page table size
 // 1 entry for each 2k block in the 64k memory
@@ -73,11 +59,17 @@
 //     the lower 11 bits represet the off set ( eg 0x07FF ) ( 2 * 1024 -1 )
 // we can shift the address over a number of bits to get the entry in the ram_pages table (rampagetable)
 // so for 2k we need to shift 11 bits to the right 
-#define RAMPAGESHIFTBITS (11)
+// DA N4 we switched to 1k page sizes so 
+// for 1k pages in 64k we are only interested in the first 6 bits ( eg 0xFC00 ) 
+//     the lower 11 bits represet the off set ( eg 0x03FF ) ( 1 * 1024 -1 )
+// we can shift the address over a number of bits to get the entry in the ram_pages table (rampagetable)
+// so for 1k we need to shift 10 bits to the right 
+#define RAMPAGESHIFTBITS (10)
 
 // and then we need to know what bit of the address we need to use for the offset into the memory page
 // for 2k that is 0x7FF ( 2 * 1024 -1 )
-#define RAMPAGEMASK (0x7FF)
+// DA N4 for 1k that is 0x3FF ( 1 * 1024 -1 )
+#define RAMPAGEMASK (0x3FF)
 
 // defines for the screen position of the 2 displays
 // only 1 of the NASCOM or VFC is displayed 
@@ -88,7 +80,7 @@
 #define MAP80VFC_DISPLAY_XPOS (40)
 #define MAP80VFC_DISPLAY_YPOS (40)
 
-#define STATUS_DISPLAY_XPOS (100*8) // not used really !!!!
+#define STATUS_DISPLAY_XPOS (40) 
 #define STATUS_DISPLAY_YPOS (40)
 
 
@@ -96,4 +88,53 @@
 #define MAP80VFC_DISPLAYFORCEREFRESH (10)
 #define NASCOM_DISPLAYFORCEREFRESH (10)
 
+/*
+ * Defined global vaiables etc here as make life simpler
+ * DA N4 :)
+ * 
+ */
+
+// these are to hold the values written to for N4 ports
+extern unsigned int Port_REMAP_value;
+extern unsigned int Port_PROTECT_value;
+extern unsigned int Port_MWAITS_value;
+extern unsigned int Port_PORPAGE_value;
+extern unsigned int Port_REASON_value;
+extern unsigned int Port_SERCON_value;
+
+extern int N4portdebug;
+
+// defines for the N4 ports
+#define Port_REMAP   0x18
+#define Port_PROTECT 0x19
+#define Port_MWAITS  0x1A
+#define Port_PORPAGE 0x1B
+#define Port_REASON  0x1C
+#define Port_SERCON  0x1D
+
+
+// moved here so simz80 could see it
+extern int usebiosmonitor;
+
+// the actual variable is defined in map80nascom.c
+// set to 1 to show debug details for the vfc display
+extern int vfcdisplaydebug;
+// #define VFCDISPLAYDEBUG 0   
+
+// set to 1 to display floppy debug details
+extern int vfcfloppydebug;
+// set to 1 to display floppy sectors read and written
+extern int  vfcfloppydisplaysectors;
+// set to 1 to show the nascom keyboard matrix each time nassys does a keyboard scan.
+// displayed when it does an index reset.
+extern int  showkeymatrix;
+// shows the sdl key values during processing
+extern int  displaykeyvalues;
+// display clock card processing
+extern int chsclockcarddebug;
+
+// display nascom paging in and out
+extern int nascompagedebug;
+
 #endif
+

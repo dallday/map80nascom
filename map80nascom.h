@@ -1,7 +1,7 @@
 #ifndef MAP80NASCOM_H
 #define MAP80NASCOM_H 1
 
-#define VERSION "8.1"
+#define VERSION "9.1"
 #define YAZEVERSION "1.10"
 
 // #define INSCREEN(x) (((x) >> 10) == 2)
@@ -22,7 +22,16 @@ extern int sim_delay(void);
 extern void out(unsigned int port, unsigned char value);
 extern int in(unsigned int port);
 
-extern int verbose;      // set to true to display messages
+extern void setPortRemap(unsigned char value);
+extern void setPortProtect(unsigned char value);
+
+// DA N4 put all the reset stuff in one routine
+extern void resetEmulator(int resetType);
+
+
+
+extern int verbose;      // set to value to display messages if > 1
+extern char emulator_mode; // set to n,v or 4
 
 extern bool go_fast;
 extern int t_sim_delay;
@@ -33,6 +42,11 @@ extern int traceon;     // set to 1 to trace z80
 
 extern int tracestartaddress;    // trace will only show results when the PC is within this range
 extern int traceendaddress;      //  end address of the trace range ( 0 to 0xFFFF )
+
+// 
+extern int JumpOnResetaddress;
+extern int JumpOnResetaddressfixed; // this one is JumpOnResetaddress>>RAMPAGESHIFTBITS
+// and reset to 0 at end of first instruction
 
 
 /*
@@ -88,5 +102,7 @@ extern int traceendaddress;      //  end address of the trace range ( 0 to 0xFFF
  */
 
 #endif
+
+
 
 // end of file

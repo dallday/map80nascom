@@ -8,11 +8,15 @@
 #include <stdint.h>
 #include <string.h>
 #include "simz80.h"
+#include "map80ram.h"
 #include "cpmswitch.h"
 #include "disassemble.h"
 
+
 #define DEBUGGER        0               // if 1, you end up with calculated
 
+// static means only called from this code ?
+static void showFlags(FASTREG AF, char * retstr );
 
 static int OpcodeLen(unsigned char *programdata);
 static void  Disassemble(unsigned int adr, unsigned char * opcodedata, char * returnstr);
@@ -813,6 +817,7 @@ int disassembleprogram(FASTREG PC,
         //printf("Tracing only between address %4.4X and %4.4X (hex) \n",tracestartaddress,traceendaddress);
         
         char disstr[100];
+        char flagscodes[10];
         unsigned char disdata[5];
         disdata[0] = RAM(PC);
         disdata[1] = RAM(PC+1);
@@ -832,13 +837,18 @@ int disassembleprogram(FASTREG PC,
 
             fprintf(outputfile,"::%s",disstr);
             if (showregisters){
-                fprintf(outputfile, " SP=%4.4X AF=%4.4X HL=%4.4X DE=%4.4X BC=%4.4X", 
-                                SP & 0xFFFF, AF & 0xFFFF, HL & 0xFFFF, DE & 0xFFFF, BC & 0xFFFF);
+                flagscodes[0]=0;
+                showFlags(AF, flagscodes);
+                fprintf(outputfile, " AF=%4.4X [%s] HL=%4.4X DE=%4.4X BC=%4.4X SP=%4.4X ", 
+                                 AF & 0xFFFF, flagscodes, HL & 0xFFFF, DE & 0xFFFF, BC & 0xFFFF, SP & 0xFFFF);
             }
             fprintf(outputfile,"\n");
 
             previousPC=PC;
-            if (cpmswitchstate==0){
+            // DA N4 how to tell 
+            // usingn the N4 Port_REMAP bit 5 - if set to 1 then auto start VFC rom
+//            if (cpmswitchstate==0){
+            if ( (Port_REMAP_value & 0x20) == 0 ) {
                   // nassys3 mode 
                   int numberofbytes=0;  // set to how many extra bytes to display
                 if ( ( RAM(PC)& 0xC7) == 0xC7) { // a RST opcode
@@ -1095,9 +1105,44 @@ int disassembleprogram(FASTREG PC,
 
 }
 
+/* the following defines are done in simz80h to define the flags 
+#define FLAG_C	1
+#define FLAG_N	2
+#define FLAG_P	4
+#define FLAG_H	16
+#define FLAG_Z	64
+#define FLAG_S	128
+ Flags are
+ * "S","Z",0,"H",0,"P","N","C"
+ *  no flag for bit 5 or 3 ?
+ */
+ void showFlags(FASTREG AF, char * retstr ){
+     
+     strcat(retstr,"      ");
+     if(AF & FLAG_C){
+         retstr[5]='C';
+     }
+     if(AF & FLAG_N){
+         retstr[4]='N';
+     }
+     if(AF & FLAG_P){
+         retstr[3]='P';
+     }
+     if(AF & FLAG_H){
+         retstr[2]='H';
+     }
+     if(AF & FLAG_Z){
+         retstr[1]='Z';
+     }
+     if(AF & FLAG_S){
+         retstr[0]='S';
+     }
 
-
-
+    return;
+    
+ }
+ 
+ 
 // end of file
 
 

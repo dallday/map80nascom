@@ -1,4 +1,23 @@
 /*
+ * 
+ *  map80nascom version 9
+ * 
+         Copyright (c) David Allday 2021-2026
+         Uses code base from Virtual Vascom 
+         Copyright (C) 2000,2009,2017,2018  Tommy Thorn.
+         http://github.com/tommythorn/virtual-nascom.git
+         Uses software from Yet Another Z80 Emulator version "YAZEVERSION"
+         , Copyright (C) 1995,1998 Frank D. Cringle.
+         MAP80 Nascom comes with ABSOLUTELY NO WARRANTY;
+         see the file \"COPYING\" in the distribution directory.
+         
+         In NASSYS mode the emulator dumps the memory state in `nasmemorydump.nas`
+         upon exit so one might resume execution later on.
+         
+         All serial output is appended to serial output file ('-o' option)
+         which may be fed back in on a subsequent launch via the '-i' option.
+
+
      This is from http://github.com/tommythorn/virtual-nascom.git
 
      Virtual Nascom, a Nascom II emulator.
@@ -22,26 +41,7 @@
      Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
      02111-1307, USA.
 
-
-   A Nascom consists of:
-
-    - a Z80 CPU,
-    - a UART,
-    - a bitmapped keyboard,
-    - memory:
-        0000 - 07ff  2 KB ROM monitor,
-        0800 - 0bff  1 KB screen memory,
-        0c00 - 0fff  1 KB workspace
-        1000 - dfff       memory
-        e000 - ffff  8 KB of MS Basic
-
-  With the Z80 emulator in place the first thing to get working is the
-  screen memory.  The "correct" way to simulate screen memory is to
-  trap upon writes, but that would be slow.  We do it any just to get
-  started.
-*/
-
-/* 
+ 
   changes made for map80nascom which adds mapped memory, floppy drives and vfc screens
    added the debugger routines plus the bios monitor.
 
@@ -67,6 +67,13 @@
             that line. New code accepts 1-9 bytes of data and only checksums if
             all 9 are present. Refactored to share code between both load routines.     
 
+ * 
+ * Note I used codelite to build this 
+ * you need to chage the working directory from $(IntermediateDirectory) 
+ * to the diredtory that contains the rom etc diretories
+ * try $(ProjectPath) nope ?
+ * 
+ * 
  *  This code contains the main function plus handles all initial port inputs and outputs
  * 
 */
@@ -101,11 +108,36 @@
  *
  */
 
-int vfcboot=0;   // set to 1 if cpm mode set
+// set to 1 to see the VFC display / rom debug info
+int vfcdisplaydebug=0; 
+// set to 1 to display floppy debug details
+int vfcfloppydebug=0;
+// set to 1 to display floppy sectors read and written
+int  vfcfloppydisplaysectors=0;
+// keyboard and SDL processing 
+// set to 1 to show the nascom keyboard matrix each time nassys does a keyboard scan.
+// displayed when it does an index reset.
+int  showkeymatrix=0;
+// shows the sdl key values during processing
+int  displaykeyvalues=0;
+
+// display clock card processing
+int chsclockcarddebug=0;
+
+// display nascom areas page in and out
+int nascompagedebug=0;
+// set to 1 to show the N4 Port changes
+int N4portdebug=0;
+
+
+// DA N4 no longer used now handled by the REMAP port 
+// int vfcboot=0;   // set to 1 if cpm mode set
                  // vfc boot rom in at 0 to start
                  // Nascom ROM and VWRAM not enabled
-int shownascomscreen=0; // set to 1 to show nascom screen
-int showVFCscreen=0; // set to 1 to display VFC Screen
+// both screen actived but 1 is hidden see OEF or OEE 
+//int shownascomscreen=0; // set to 1 to show nascom screen
+//int showVFCscreen=0; // set to 1 to display VFC Screen
+char emulator_mode = 'n';
 
 bool go_fast = false;
 int t_sim_delay = SLOW_DELAY;
@@ -130,7 +162,16 @@ WORD pc;
 WORD IFF;
 
 
-//BYTE ram[RAMSIZE*1024];
+//BYTE ram[RAMSIZE*1024]; see the memory file
+
+// these are to hold the values written to for N4 ports
+unsigned int Port_REMAP_value = 0;
+unsigned int Port_PROTECT_value = 0;
+unsigned int Port_MWAITS_value = 0;
+unsigned int Port_PORPAGE_value = 0;
+unsigned int Port_REASON_value = 0xC0;
+unsigned int Port_SERCON_value = 0;
+
 
 
 int verbose=0;          // set to true to display messages
@@ -143,6 +184,15 @@ int traceendaddress=0xFFFF; //  end address of the trace range
 int usebiosmonitor=0;   // set to 1 to make use of the bios moitor
 
 int scaledisplays=2;    // default scale display 
+
+int calldisableSBROM=0; // used to count down to the disable of SBROM
+
+// used to set the "jump on reset" links on the nascom 2
+// DA N4 used to start SBROM on the N4
+int JumpOnResetaddress=0;
+int JumpOnResetaddressfixed=0; // this one is JumpOnResetaddress>>RAMPAGESHIFTBITS
+
+
 /*
  *
  * end of globals
@@ -153,25 +203,25 @@ int scaledisplays=2;    // default scale display
 /*
  * define internal functions
  */
+void setPortRemap(unsigned char value);
 
 static void save_nascom(int start, int end, const char *name);
 // static void reportdisplaymodes(void);
 static int setdisassemblerrange(char * valuerange);
 
+// called to refresh screens and the check for keyboard requests
+//
 int sim_delay(void)
 {
     sim_action_t localaction = CONT;
 
     // update the status display
     status_display_refresh();
-    if (shownascomscreen!=0){
-        // update the nascom display
-        nascom_display_refresh();
-    }
-    if (showVFCscreen!=0){
-        // update the vfc display
-        map80vfc_display_refresh();
-    }
+    // refresh both screens
+    // update the nascom display
+    nascom_display_refresh();
+    // update the vfc display
+    map80vfc_display_refresh();
     
     if (!go_fast){
         SDL_Delay(50);
@@ -199,6 +249,7 @@ int sim_delay(void)
     // so it keeps resetting ?
     // return current value and reset global variable
     localaction = action;
+    // global set to continue
     action=CONT;
     return localaction;
 
@@ -245,21 +296,23 @@ static void usage(char * progname)
 {
     fprintf(stderr,
  "This is MAP80 Nascom.  Usage: %s {flags} files\n"
- "        {flags}\n"
- "           -i <file>        take serial port input from file (if tape led is on)\n"
- "           -o <file>        send serial port output to file\n"
- "           -m <file>        use <file> as monitor (default is nassys3.nal)\n"
- "           -b               boot in cpm mode\n"
- "           -f <configfile>  load floppy drive - repeat for up to 4 drives\n"
- "           -s factor        change the window sizes - default factor is 2\n"
- "           -t               output a trace of the Z80 opcodes executed ( also F2 )\n"
- "           -l  start:end    limits the trace process to with an address range\n"
- "           -v               be verbose\n"
- "           -x               use bios monitor when starting and stopped\n"
- "       files                a list of nas files to load\n"
- 
+ "\t{flags}\n"
+ "\t\t-n           emulator Nascom 2, the default\n"
+ "\t\t-v           emulate VFC boot for CPM\n"
+ "\t\t-4           emulate the N4 \n"
+ "\t\t-c <file>    Use this file as the N4 SD card image\n"
+ "\t\t-m <file>    use <file> as monitor (default is rom/nassys3.rom)"
+ "\t\t-i <file>    take serial port input from file (if tape led is on)\n"
+ "\t\t-o <file>    send serial port output to file\n"
+ "\t\t-f <configfile> load floppy drive - repeat for up to 4 drives\n"
+ "\t\t-s factor    change the window sizes - default factor is 2\n"
+ "\t\t-t           output a trace of the Z80 opcodes executed ( also F2 )\n"
+ "\t\t-l start:end limits the trace process to with an address range\n"
+ "\t\t-d <level>   debug level : 1 is verbose\n"
+ "\t\t-x           use bios monitor when starting and stopped\n"
+ "\t\tfiles        a list of nas files to load\n"
+
             ,progname);
-    exit (1);
 }
 
 
@@ -271,6 +324,7 @@ int main(int argc, char **argv){
     char *progname;     // name of program
 
     char *vfcromname;   // name of the vfc rom
+    char *SBROMname;    // name for the SBROM DA N4
     
     char *floppy[4];
     int numberofFloppies = -1;
@@ -283,15 +337,21 @@ int main(int argc, char **argv){
 // fix DA moved roms to the roms folder
     monitor = "roms/nassys3.nas";
     vfcromname = "roms/vfcrom0.nas";   // name of the vfc rom based at zero
-
+    SBROMname= "roms/z80_sboot_rom.nas"; // load the SBROM here DA N4
+    sdcard="roms/nascom4_sdcard.img"; // default image for N4 sd card
     progname = argv[0];
     
     // will display the display modes avaiable
     //printf("display modes\n");
     //reportdisplaymodes();
     // it returns ? if invalid option having reported invalid option
-    while ((c = getopt(argc, argv, "c:f:i:m:o:s:vbtxl:")) != EOF)
+    // do we need a multiple level for option d ?? TODO
+    while ((c = getopt(argc, argv, "l:m:c:f:i:o:s:d:xnv4t")) != EOF) {
+        
+        // printf("Option %c\n",c);
+        
         switch (c) {
+
         case 'l':
             if (setdisassemblerrange(optarg)==1){
                 // problem with the limit range values
@@ -306,17 +366,57 @@ int main(int argc, char **argv){
             // serial output file - appends to it 
             setserialoutfilename(optarg);
             break;
-        case 'b':
-            vfcboot=1;
-            break;
         case 't':
             traceon=1;
+            break;
+        case 'n':
+            emulator_mode='n';
+            break;
+        case 'v':
+            emulator_mode='v';
+            break;
+        case '4':
+            emulator_mode='4';
             break;
         case 'm':
             monitor = optarg;
             break;
-        case 'v':
-            verbose = 1;
+        case 'd':   // was v now d for debug 
+            // having different numbers but all can be active
+            for (int cpos=0;cpos<strlen(optarg);cpos++){
+                switch (optarg[cpos]){
+                case '1':
+                    verbose=1;
+                    break;
+                case '2':
+                    nascompagedebug=1;
+                    break;
+                case '3':
+                    chsclockcarddebug=1;
+                    break;
+                case '4':
+                    N4portdebug=1;
+                    break;
+                case '5':
+                    vfcdisplaydebug=1; 
+                    break;
+                case '6':
+                    vfcfloppydebug=1;
+                    break;
+                case '7':
+                    vfcfloppydisplaysectors=1;
+                    break;
+                default:
+                    if (optarg[cpos] == '-') {
+                        printf ("Think you forgot the value for -d ? \n");
+                    }else {
+                        printf("-d option value %s not recognised\n",optarg);
+                    }
+                    break;
+                }
+                
+            }
+
             break;
         case 'f':
             if (numberofFloppies>4){
@@ -337,7 +437,9 @@ int main(int argc, char **argv){
             }
             break;
         case '?':
+            printf("unreconised option %c \n",optopt);
             usage(progname);
+            exit (9);
             break;
         case 'x':
             usebiosmonitor=1;
@@ -355,29 +457,29 @@ int main(int argc, char **argv){
             break;
             }
         }
+        
+    }
 
     // fix DA - added F1 triggers NMI
 
     puts("MAP80 Nascom, a Nascom 2 emulator version " VERSION "\n"
          "with MAP80 256 ram, MAP80 VFC display and floppy card,\n"
-         "CHS clock card and Neals N4 SD card.\n");
-    if (verbose){
-         puts("Copyright (c) David Allday 2021\n"
-         "Uses code base from Virtual Vascom \n"
-         "Copyright (C) 2000,2009,2017,2018  Tommy Thorn.\n"
-         "http://github.com/tommythorn/virtual-nascom.git\n"
-         "Uses software from Yet Another Z80 Emulator version "YAZEVERSION
-         ", Copyright (C) 1995,1998 Frank D. Cringle.\n"
-         "MAP80 Nascom comes with ABSOLUTELY NO WARRANTY;\n"
-         "see the file \"COPYING\" in the distribution directory.\n"
-         "\n"
-         "In NASSYS mode the emulator dumps the memory state in `nasmemorydump.nas`\n"
-         "upon exit so one might resume execution later on.\n"
-         "\n"
-         "All serial output is appended to serial output file ('-o' option)\n"
-         "which may be fed back in on a subsequent launch via the '-i' option.\n"
-         "\n");
+         "CHS clock card and Neal Crooks's N4 with SD card.");
+
+    printf("**** Emulator now in ");
+    switch (emulator_mode) {
+    case 'n':
+        printf("Nascom 2");
+        break;
+    case 'v':
+        printf("VFC boot CPM");
+        break;
+    default:
+        printf("N4");
+        break;
     }
+    printf(" mode ****\n");
+
 
     if (verbose){
         char cwd[FILENAME_MAX]; //create string buffer to hold path
@@ -403,32 +505,30 @@ int main(int argc, char **argv){
     // sets the rampagetable entries to the first 64k of the ram space
     map80RamInitialise();
 
-    // if nascom mode set the nascom2 rom and ram
-    //
-    setcpmswitch(vfcboot);
 
     //   printf("NascomMonVWram address %p \n",&NascomMonVWram);
     //   printf("NascomMonVWram screen address %p \n",&NascomMonVWram[0x800]);
     
     // set the positions of the various screens
-    // 
-    if (vfcboot==0){
+    // both nascom and vfc screens are processed
+    // technically only one should be seen 
         // use the standard Nascom display
         nascomdisplayxpos=NASCOM_DISPLAY_XPOS;
         nascomdisplayypos=NASCOM_DISPLAY_YPOS;
-        statusdisplayxpos=nascomdisplayxpos+NASCOM_DISPLAY_WIDTH+10;
-        statusdisplayypos=STATUS_DISPLAY_YPOS;
-        shownascomscreen=1;
-    }
-    else{
         // use the vfc display
         map80vfcdisplayxpos=MAP80VFC_DISPLAY_XPOS;
         map80vfcdisplayypos=MAP80VFC_DISPLAY_YPOS;
-        statusdisplayxpos=map80vfcdisplayxpos+MAP80VFCDISPLAY_DISPLAY_WIDTH+10;
-        statusdisplayypos=STATUS_DISPLAY_YPOS;
-        showVFCscreen=1;
        
-    }
+// status screen position
+//        statusdisplayxpos=nascomdisplayxpos+NASCOM_DISPLAY_WIDTH+10;
+//        statusdisplayypos=STATUS_DISPLAY_YPOS;OEF
+
+//        statusdisplayxpos=map80vfcdisplayxpos+MAP80VFCDISPLAY_DISPLAY_WIDTH+10;
+//        statusdisplayypos=STATUS_DISPLAY_YPOS;
+
+        statusdisplayxpos=STATUS_DISPLAY_XPOS;
+        statusdisplayypos=STATUS_DISPLAY_YPOS;
+
 
     // setup the status screen
     if (status_create_screen( (&statusdisplayram[0]) )){
@@ -436,43 +536,49 @@ int main(int argc, char **argv){
     }
     // scale it to match others 
     status_display_change_size(scaledisplays);
+    status_display_position(statusdisplayxpos, statusdisplayypos) ;
 
-    if (shownascomscreen!=0){
+    int status_display_width=0;
+    int status_display_height=0;
+    int currentwidth=0;
+    int currentheight=0;
+    // get status disaply size so we can adjust the others
+    status_GetWindowSize(&status_display_width,&status_display_height);
+
         // create nascom screen in it's own ram
         // screen is in the nascom ram space
         if (nascom_create_screen( (&NascomMonVWram[0x800]) )){
             return 1;
         }
         nascom_display_change_size(scaledisplays);
-        int currentwidth=0;
-        int currentheight=0;
+        nascomdisplayypos=statusdisplayypos+status_display_height+NASCOM_DISPLAY_YPOS+30;
+        nascom_display_position(nascomdisplayxpos,nascomdisplayypos);
         nascom_GetWindowSize(&currentwidth,&currentheight);
-//        if (verbose){
-//            printf("current Nascom screen width: %d height: %d \n",currentwidth,currentheight);
-//       }
-        status_display_position(nascomdisplayxpos+currentwidth+10, STATUS_DISPLAY_YPOS) ;
-    }
+        if (verbose){
+            printf("current Nascom screen width: %d height: %d \n",currentwidth,currentheight);
+       }
 
-    if (showVFCscreen!=0){
+//        status_display_position(statusdisplayxpos, statusdisplayypos) ;
+//    changed putting status display first 
+
         // create vfc screen in it's own ram
         if (map80vfc_create_screen( (&vfcdisplayram[0]) )){
          return 1;
         }
         map80vfc_display_change_size(scaledisplays);
-        int currentwidth=0;
-        int currentheight=0;
+        map80vfcdisplayypos=statusdisplayypos+status_display_height+MAP80VFC_DISPLAY_YPOS+30;
+        map80vfc_display_position(map80vfcdisplayxpos,map80vfcdisplayypos);
         map80vfc_GetWindowSize(&currentwidth,&currentheight);
 //        if (verbose){
 //            printf("current Map80 screen width: %d height: %d \n",currentwidth,currentheight);
 //        }
-        status_display_position(map80vfcdisplayxpos+currentwidth+10, STATUS_DISPLAY_YPOS) ;
-    }
+//        status_display_position(statusdisplayxpos, statusdisplayypos) ;
 
 
     //load_nascom(monitor);
     // load nas monitor into the first 2k of NascomMonVWram ram and ensure it is only 2048 bytes
     if (loadNASformatspecial(monitor, &NascomMonVWram[0], 2048 ) != 0 ){
-        if (vfcboot==0){ // if in cpm mode ignore error
+        if (emulator_mode!='v'){ // if in cpm mode ignore error
             fprintf(stderr,"Failure in loading %s \n",monitor);
             exit (1);
         }
@@ -480,38 +586,42 @@ int main(int argc, char **argv){
 
     // load VFC Boot rom into the first 2k of vfcrom rom and ensure it is only 2048 bytes
     if (loadNASformatspecial(vfcromname, &vfcrom[0], 2048 ) != 0 ){
-        if (vfcboot==1){ // if not in cpm mode ignore error
+        if (emulator_mode=='v'){ // if not in cpm mode ignore error
             fprintf(stderr,"Failure in loading %s \n",vfcromname);
             exit (1);
         }
     }
 
-/*
-    // fix DA moved roms to the roms folder
-    // load the basic rom
-    if (load_nascom("roms/basic.nal")==0){
-        if (verbose){
-            fprintf(stdout, "loaded basic\n");
+    // load SBROM rom into own and ensure it is only 1024 bytes
+    //if (loadNASformatspecial(SBROMname, &SBROM[0], 1024 ) != 0 ){
+    if (loadNASformatspecial(SBROMname, &SBROM[0] , 1024 ) != 0 ){
+
+        if (emulator_mode=='4'){ // if not in cpm mode ignore error
+            fprintf(stderr,"Failure in loading %s \n",SBROMname);
+            exit (1);
         }
     }
 
-    // fix DA loaded polydos into ram
-    if (load_nascom("roms/PolyDos_2_Boot_ROM.nas")==0){
-        if (verbose){
-            fprintf(stdout, "loaded polydos2\n");
-        }
-    }
 
-*/
+
     for (; optind < argc; optind++){
         // load it into the first 64k of the standard memory 
-        // This works as the ramdefaultpagetable[0] points at the start of virtual memory
-        // and virtual memory is contiguous.
+        // The code now uses the RAM macro to load the bytes into the 64k as set by the MAP80 mapping
+        // at this stage it should all be 64k of block 0
+        // if it did try and write to NASSYS3 rom area 
+        // the process recognises such rom stuff and writes to the underlying mapped memory using ramdefaultpagetable
+        //
         int retval=loadNASformat(argv[optind]);
         if (retval){
                 printf("Problem loading %s\n",argv[optind]);
         }
     }
+
+    //if (SDCardPresent) {
+        // DA N4 since I have set a default then mount it anyway :)
+        SDMountDisk(sdcard);
+    //+}
+
 
     // ensure all drives are reset
     resetalldrives();
@@ -524,32 +634,28 @@ int main(int argc, char **argv){
     
     displayfloppydetails();
 
-    if (SDCardPresent) {
-        SDMountDisk(sdcard);
-    }
 
-        // call to set the vfc rom\display entries
-        // cpmswitchstate (set from vfcboot) acts like link4 on the hardware
-        // if set :
-        //      00 will enable rom and 02 disables rom
-        // if not set:
-        //      00 will disable rom and 02 enables rom
-        // 01 enables display
-        outPortVFCDisplay(0xEC,0x00);
-//    }
-
-
-    // fix DA - no longer needed as getword changed
-    // ram[0x10000] = ram[0]; // Make GetWord[0xFFFF) work correctly
+// N4 changes - need to enable Nascom Rom via port control
 
     // clear the first command if we want to use the bios monitor.
     if (usebiosmonitor!=0){
+        // blank out the first command.
         firstcommand[0]=0;
     }
 
+
+    // DA N4 allow a jump on reset address
+    // we will do this like N4
+    // set stuff for first boot
+    // does all the setup based on emulatioon type 
+    // 0 means do a cold restart
+    resetEmulator(0);
+
+
     MAP80nascomMonitor(firstcommand);
 
-    if (cpmswitchstate==0){
+    // da n4 changed to only do this if not VFC (cpm) mode
+    if (emulator_mode != 'v'){
         // save the nascom space to file
         save_nascom(0x800, 0x10000, "nasmemorydump.nas");
     }
@@ -618,6 +724,7 @@ void out(unsigned int port, unsigned char value)
         case 1:
             writeserialout(value);
             break;
+            // TODO - add PIO and CTC controls 
         default:
             if (verbose){
                 fprintf(stdout, "Unknown output to port %02x value %02x\n", port, value);
@@ -632,6 +739,51 @@ void out(unsigned int port, unsigned char value)
         case 0x13:
         case 0x14:
             outPortSD( port,value);
+            break;
+
+        // added for N4 controls
+        case 0x18:   //REMAP
+            // put the value to Port_REMAP and check what must happen
+            // need to be careful about SBROM disable
+            // when we change REMAP this may impact VFC flag 
+            // so if it has changed then need to call port 0xEC with 0 ?
+            if (N4portdebug){
+                fprintf(stdout, "Port_REMAP (18) changed from %02x to %02x\n", Port_REMAP_value, value);
+            }
+            setPortRemap(value);
+            
+            break;
+        case 0x19:   //PROTECT
+            // need to work out how
+            if (N4portdebug){
+                fprintf(stdout, "Port_PROTECT (19) changed from %02x to %02x\n", Port_PROTECT_value, value);
+            }
+            setPortProtect(value);
+            break;
+        case 0x1A:   //MWAITS
+            if (N4portdebug){
+                fprintf(stdout, "Port_MWAITS (1A) changed from %02x to %02x\n", Port_MWAITS_value, value);
+            }
+            Port_MWAITS_value=value;
+            break;
+        case 0x1B:   //PORPAGE
+            if (N4portdebug){
+                fprintf(stdout, "Port_PORPAGE (1B) changed from %02x to %02x\n", Port_PORPAGE_value, value);
+            }
+            Port_PORPAGE_value=value;
+            break;
+        case 0x1C:   //REASON
+            if (N4portdebug){
+                fprintf(stdout, "Port_REASON (1C) changed from %02x to %02x\n", Port_REASON_value, value);
+            }
+            Port_REASON_value=value;
+            break;
+        case 0x1D:   //SERCON
+            if (N4portdebug){
+                fprintf(stdout, "Port_SERCON (1D) changed from %02x to %02x\n", Port_SERCON_value, value);
+            }
+            // not doing anything at preset on serial speeds
+            Port_SERCON_value=value;
             break;
 
         // clock card PIO ports - for Chris's version
@@ -746,6 +898,30 @@ int in(unsigned int port)
         case 0x14:
             retval=inPortSD(port);
             break;
+
+       // added for N4 controls
+        case 0x18:   //REMAP
+            // put the value to Port_REMAP and check what must happen
+            // need to be careful about SBROM disable
+            retval=Port_REMAP_value;
+            break;
+        case 0x19:   //PROTECT
+            // need to work out how
+            retval=Port_PROTECT_value;
+            break;
+        case 0x1A:   //MWAITS
+            retval=Port_MWAITS_value;
+            break;
+        case 0x1B:   //PORPAGE
+            retval=Port_PORPAGE_value;
+            break;
+        case 0x1C:   //REASON
+            retval=Port_REASON_value;
+            break;
+        case 0x1D:   //SERCON
+            // not doing anything at preset on serial speeds
+            break;
+
 
             // clock card PIO ports - for Chris's version
         case 0x88:
@@ -877,3 +1053,288 @@ static void reportdisplaymodes(void){
 }
 */
 
+/*
+ * PortPROTECT (0x19 ) 
+ * Port: $19 (READ/WRITE)
+   Name: PROTECT
+   Notes: The reset value is UNDEFINED. The write-protect address regions correspond to the
+   NASCOM 2 monitor ROM, EPROMs on the NASCOM 2 board and the NASCOM 2 BASIC ROM.
+    * 
+    7            Unused: write data ignored, read 0.
+    6 PROTEF8K1: Write-protect 8Kbyte region starting from $E000
+    5 PROTDF4K1: Write-protect 4Kbyte region starting from $D000
+    4 PROTCF4K1: Write-protect 4Kbyte region starting from $C000
+    3 PROTBF4K1: Write-protect 4Kbyte region starting from $B000
+    2 PROTAF4K1: Write-protect 4Kbyte region starting from $A000
+    1            Unused: write data ignored, read 0.
+    0 PROT0F2K     1: Write-protect 2Kbyte region starting from $0000
+    * 
+ */
+void setPortProtect(unsigned char value){
+     
+    // set the ramromtable using bit 4  ( 0x10 ) but dont change the rest
+    // ?? TODO do we check if already set and onlyu change if needed
+    // for now just set or unset them all 
+    unsigned int setmask = (1 << 4); // set a bit in the mask;
+    unsigned int unsetmask = ~(1 << 4); // clear a bit in the mask;
+
+    if (value & 0x40){
+        // set protect on  PROTEF8K1: Write-protect 8Kbyte region starting from $E000
+        int baseentry = 0xE000>>RAMPAGESHIFTBITS;
+        for (int entry=0;entry<8;entry++){
+            ramromtable[baseentry+entry]|=setmask;
+        }
+    }else {
+        // set protect off  PROTEF8K1: Write-protect 8Kbyte region starting from $E000
+        int baseentry = 0xE000>>RAMPAGESHIFTBITS;
+        for (int entry=0;entry<8;entry++){
+            ramromtable[baseentry+entry]&=unsetmask;
+        }
+        
+    }
+    //5 PROTDF4K1: Write-protect 4Kbyte region starting from $D000
+    if (value & 0x20){
+        // set protect on  PROTEF8K1: Write-protect 8Kbyte region starting from $E000
+        int baseentry = 0xD000>>RAMPAGESHIFTBITS;
+        for (int entry=0;entry<4;entry++){
+            ramromtable[baseentry+entry]|=setmask;
+        }
+    }else {
+        // set protect off  PROTEF8K1: Write-protect 8Kbyte region starting from $E000
+        int baseentry = 0xD000>>RAMPAGESHIFTBITS;
+        for (int entry=0;entry<4;entry++){
+            ramromtable[baseentry+entry]&=unsetmask;
+        }
+        
+    }
+    //4 PROTCF4K1: Write-protect 4Kbyte region starting from $C000
+    if (value & 0x10){
+        // set protect on  PROTEF8K1: Write-protect 8Kbyte region starting from $E000
+        int baseentry = 0xC000>>RAMPAGESHIFTBITS;
+        for (int entry=0;entry<4;entry++){
+            ramromtable[baseentry+entry]|=setmask;
+        }
+    }else {
+        // set protect off  PROTEF8K1: Write-protect 8Kbyte region starting from $E000
+        int baseentry = 0xC000>>RAMPAGESHIFTBITS;
+        for (int entry=0;entry<4;entry++){
+            ramromtable[baseentry+entry]&=unsetmask;
+        }
+        
+    }
+    //3 PROTBF4K1: Write-protect 4Kbyte region starting from $B000
+    if (value & 0x08){
+        // set protect on  PROTEF8K1: Write-protect 8Kbyte region starting from $E000
+        int baseentry = 0xB000>>RAMPAGESHIFTBITS;
+        for (int entry=0;entry<4;entry++){
+            ramromtable[baseentry+entry]|=setmask;
+        }
+    }else {
+        // set protect off  PROTEF8K1: Write-protect 8Kbyte region starting from $E000
+        int baseentry = 0xB000>>RAMPAGESHIFTBITS;
+        for (int entry=0;entry<4;entry++){
+            ramromtable[baseentry+entry]&=unsetmask;
+        }
+        
+    }
+    //2 PROTAF4K1: Write-protect 4Kbyte region starting from $A000
+    if (value & 0x04){
+        // set protect on  PROTEF8K1: Write-protect 8Kbyte region starting from $E000
+        int baseentry = 0xA000>>RAMPAGESHIFTBITS;
+        for (int entry=0;entry<4;entry++){
+            ramromtable[baseentry+entry]|=setmask;
+        }
+    }else {
+        // set protect off  PROTEF8K1: Write-protect 8Kbyte region starting from $E000
+        int baseentry = 0xA000>>RAMPAGESHIFTBITS;
+        for (int entry=0;entry<4;entry++){
+            ramromtable[baseentry+entry]&=unsetmask;
+        }
+        
+    }
+    //1            Unused: write data ignored, read 0.
+    //0 PROT0F2K     1: Write-protect 2Kbyte region starting from $0000
+    if (value & 0x01){
+        // set protect on  PROTEF8K1: Write-protect 8Kbyte region starting from $E000
+        int baseentry = 0x0000>>RAMPAGESHIFTBITS;
+        for (int entry=0;entry<2;entry++){
+            ramromtable[baseentry+entry]|=setmask;
+        }
+    }else {
+        // set protect off  PROTEF8K1: Write-protect 8Kbyte region starting from $E000
+        int baseentry = 0x0000>>RAMPAGESHIFTBITS;
+        for (int entry=0;entry<2;entry++){
+            ramromtable[baseentry+entry]&=unsetmask;
+        }
+        
+    }
+//    if (verbose){
+//        displayRamTable();
+//    }
+    
+    Port_PROTECT_value=value;
+}
+
+
+/*
+ * To change the areas "mapped" in and out based on the N4 controls 
+ * DA N4 
+ * Reset only bit 2 is set to 1
+    7
+    6 CHARGEN0: VFC ROM/RAM regions behave normally.
+        1: VFC RAM region occupies the whole 4Kbyte window
+        of the VFC and provides write-only access to the character
+        generator (see Programmable Character Generator on page 32)
+    5   VFCAUTOMAP VFC autoboot. Determines effect of VFCMAP[1] (Port $EC). 
+            This mimics the function of the L4 jumper on a MAP80 VFC board.
+    4 NASWSRAM1: Enable NASCOM workspace RAM; 1Kbytes at $0C00.
+    3 NASROM1: Enable NASCOM ROM monitor; 2Kbytes at $0000.
+    2 SBROM1: Enable special boot ROM; 1Kbytes ar $1000. 
+    1 NASVRAMHI
+        0: NASCOM video RAM is decoded at $0800.
+        1: NASCOM video RAM is decoded at $F800 (for NASCOM CP/M).
+    0 NASVRAM1: Enable NASCOM video RAM; 1Kbytes
+ */
+
+void setPortRemap(unsigned char value){
+    // need to save it before processing as port 0xEC will check it 
+    // so keep current value and save new value into global variable
+    // DA N4 - need to only disable / enable if entry changed from last time 
+    unsigned char  previousValue=Port_REMAP_value;
+    Port_REMAP_value= value;
+
+    // NASVRAM control 
+    if (value & 0x01) {
+      // check on bit 2 to get address
+      EnableNascomVideoRam(value & 0x02);
+    }
+    else {
+        // only remove if the value has changed
+        if ((value & 0x01) != (previousValue & 0x01)){
+          DisableNascomVideoRam(value & 0x02);
+        }
+        // 0x02 determines the address of the nascomvideo
+    }
+ 
+
+   // SBROM control 
+    if (value & 0x04) {
+            EnableSBROM();
+    } 
+    else {
+        // only do something if the value has changed
+        if ((value & 0x04) != (previousValue & 0x04)){
+           // needs care are needs to map out after next instruction
+           // but only if it is mapped in ??? 
+           calldisableSBROM=2; // when it gets to 1 rom will be disabled 
+           // DisableSBROM();
+        }
+    }
+    
+    // NASROM control 
+    if (value & 0x08) {
+        EnableNascomMonitor();
+    }
+    else {
+        // only do something if the value has changed
+        if ((value & 0x08) != (previousValue & 0x08)){
+            DisableNascomMonitor();
+        }
+    }
+    
+    // NASWRAM control 
+    if (value & 0x10) {
+        EnableNascomWorkRam();
+    }
+    else {
+        // only do something if the value has changed
+        if ((value & 0x10) != (previousValue & 0x10)){
+            DisableNascomWorkRam();
+        }
+    }
+    
+    // VFCAUTO control 
+    // sort of sets the "link 4" on the vfc card
+    // determines the effect of the VFCMAP on port 0xEC
+    // was originally set by the -b option but . . . . N4    
+    // this is now read directly when needed 
+    
+    // if the value has changed  then call port EC
+//    if ((value & 0x20) != (previousValue & 0x20)) {
+        // this will either map in or out the VFC Rom
+    if ((value & 0x20) ){
+        //printf("VFC set to new mode %02X \n",value);
+        out(0xEC,0);
+        
+    }
+     
+    // CHARGEN VFC control 
+    // sort of sets the "link 4" on the vfc card
+    // determines the effect of the VFCMAP on port 0xEC
+    // was originally set by the -b option but . . . . N4
+    
+//    if (value & 0x40) {
+//    }
+//    if (verbose){
+//        displayRamTable();
+//    }
+    Port_REMAP_value=value;
+
+}
+
+    
+/*
+ * With different setups the reset has become a bit more complex
+ * so put all the details here so they were in one place
+ * 
+ * resetType is 0 for cold 1 for warm
+ */
+void resetEmulator(int resetType){
+
+    // first reset all memory pages 
+    resetMemoryPages();
+    // sort of equivalent of  out(0xFE,0); // reset paging on MAP80RAM card
+
+    // if emulating the N4 then need to do this 
+    if (emulator_mode=='4'){
+        JumpOnResetaddress=0x1000;  // set for SBROM 
+        if (resetType==0){ // cold reset
+            // this will reset PC to 0 need to reset hardware etc - moved from sdlevents 
+            // should be done as resetMemoryPages - out(0xEC,0); // reset paging on MAP80VFC 
+            out(0x1C,0x80 ); // REASON port set to say cold boot ( not sure about bit 6 never booted ??)
+            out(0x18,0x04);// should EnableSBROM();
+            out(0xEC,0); // switch out VFC stuff
+            out(0xEF,0); // bring nascom screen back
+        } else {
+            out(0x1C,0x40 ); // REASON port set to say warm boot
+            out(0x18,Port_REMAP_value|0x04);// should EnableSBROM() and leave rest alone;
+            out(0xEC,0); // switch in VFC rom is needed (switch out the VFC screen memory)
+        }
+    } else if (emulator_mode=='v') {
+        JumpOnResetaddress=0x0000;  // set for standard
+        // this will reset PC to 0 need to reset hardware etc - moved from sdlevents 
+        // part of resetMemoryPages - out(0xFE,0); // reset paging on MAP80RAM card
+        out(0x18,0x20); // disable all nascom stuff and set vfc auto
+        // ??? TODO check out(0xEC,0); // reset vfc rom if not done by above 
+        out(0xEE,0);  // will select the VFC display as main and hide the nascom one
+    } else { // assume nascom 2
+        JumpOnResetaddress=0x0000;  // set for standard
+        // this will reset PC to 0 need to reset hardware etc - moved from sdlevents 
+        //part of resetMemoryPages - out(0xFE,0); // reset paging on MAP80RAM card
+        //part of resetMemoryPages - out(0xEC,0); // reset paging on MAP80VFC
+        // TODO do we need to remove SBROM 
+        out(0x18,0x19);// should Enable nascom 2 stuff ;
+        out(0xEF,0); // bring nascom screen to front and hide the VFC one
+        out(0xEC,0); // switch in VFC rom is needed (switch out the VFC screen memory)
+        
+    }
+    // set the jumponreset on all cases - but only used for N4 ?
+    JumpOnResetaddressfixed=JumpOnResetaddress>>RAMPAGESHIFTBITS; // this one is JumpOnResetaddress>>RAMPAGESHIFTBITS
+   // need the JumpOnResetaddressfixed to be set
+   //  PC = 0;		// reset the emulator has to be done in main routine ???
+
+}    
+
+
+
+// end of code

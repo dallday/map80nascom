@@ -130,7 +130,8 @@ extern void map80vfc_display_position(int x, int y);
 // updates the integers pointed to by w and h
 extern void map80vfc_GetWindowSize(int* w, int* h);
 
-
+extern void VFC_show_window();
+extern void VFC_hide_window();
 
 // handle the ports for the vfc video card
 extern int inPortVFCDisplay(unsigned int port);

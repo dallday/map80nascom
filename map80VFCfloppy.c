@@ -30,9 +30,9 @@
 #include "map80nascom.h"
 #include "statusdisplay.h"
 
-// global variables - initial values set in options.
-int vfcfloppydebug=VFCFLOPPYDEBUG;
-int vfcfloppydisplaysectors=VFCFLOPPYDISPLAYSECTORS;
+// global variables - initial values set in map80nascom.c 
+//int vfcfloppydebug=VFCFLOPPYDEBUG;
+//int vfcfloppydisplaysectors=VFCFLOPPYDISPLAYSECTORS;
 
 // status details used to set status register and status port return values
 // ports 0xE0 and 0xE4
@@ -483,7 +483,7 @@ int floppyMountDisk(unsigned int drive, char *configfilename){
         else if(strcmp(keyword,"write-protect")==0){
             // set disc write protected
             floppyDrives[setdrive].writeProtect = ((paramdata[0] == 'Y') || (paramdata[0] == 'y'));
-            printf("Floppy write protect %d\n",floppyDrives[setdrive].writeProtect);
+            // printf("Floppy write protect %d\n",floppyDrives[setdrive].writeProtect);
         }
         else if(strcmp(keyword,"file-layout")==0){
             // not using this keyword
@@ -552,12 +552,16 @@ int floppyMountDisk(unsigned int drive, char *configfilename){
         }
     }
 
-    printf("Mount Floppy drive %d, config file '%s', image file '%s' \n",
+    printf("Mount Floppy drive %d, config file '%s'\n\t image file '%s' \n",
                 setdrive,configfilename,(floppyDrives[setdrive].fileNamePointer==NULL? "null":floppyDrives[setdrive].fileNamePointer ));
     if (verbose){
 
         printdiscimageproperties(setdrive);
         
+    } else {
+        if (floppyDrives[setdrive].writeProtect){
+            printf("\tDrive mounted Read only\n");
+        }
     }
 
     return 0;
@@ -567,6 +571,9 @@ int floppyMountDisk(unsigned int drive, char *configfilename){
 
 // handle all calls to the MAP80 VFC output ports
 void outPortFloppy(unsigned int port, unsigned int value){
+    
+ 
+    
 
     // da apr 2026 changed to vfcfloppydebug
     if (vfcfloppydebug){
@@ -609,14 +616,17 @@ void outPortFloppy(unsigned int port, unsigned int value){
 
 void printdiscimageproperties(int driveNumber){
 
-    printf("Image details for drive  %2.2X \n",driveNumber);
-    printf("   Image file [%s]\n",floppyDrives[driveNumber].fileNamePointer);
-    printf("   Number of Heads   [%d]\n",floppyDrives[driveNumber].numberOfHeads);
-    printf("   Number of tracks  [%d]\n",floppyDrives[driveNumber].numberOfTracks);
-    printf("   Number of Sectors [%d]\n",floppyDrives[driveNumber].numberOfSectors);
-    printf("   First Sector      [%d]\n",floppyDrives[driveNumber].firstSectorNumber);
-    printf("   Interleaved       [%d]\n",floppyDrives[driveNumber].interleaved);
-    printf("   Size of Sector    [%d]\n",floppyDrives[driveNumber].sizeOfSector);
+    printf("  Image details for drive  %2.2X \n",driveNumber);
+    printf("\tImage file [%s]\n",floppyDrives[driveNumber].fileNamePointer);
+    printf("\tNumber of Heads   [%d]\n",floppyDrives[driveNumber].numberOfHeads);
+    printf("\tNumber of tracks  [%d]\n",floppyDrives[driveNumber].numberOfTracks);
+    printf("\tNumber of Sectors [%d]\n",floppyDrives[driveNumber].numberOfSectors);
+    printf("\tFirst Sector      [%d]\n",floppyDrives[driveNumber].firstSectorNumber);
+    printf("\tInterleaved       [%d]\n",floppyDrives[driveNumber].interleaved);
+    printf("\tSize of Sector    [%d]\n",floppyDrives[driveNumber].sizeOfSector);
+    if (floppyDrives[driveNumber].writeProtect){
+        printf("\tDrive mounted Read only\n");
+    }
 
 
 /*
@@ -636,6 +646,8 @@ void printdiscimageproperties(int driveNumber){
 int inPortFloppy(unsigned int port){
 
 int retval=0xFF;
+
+
 
     switch (port) {
     case 0xE0:
@@ -1563,7 +1575,7 @@ static int floppyReadDrivePort(){
 
     int returnval = floppyInteruptRequest + (invertedfloppyNotReady << 1) + (floppyDataRequest << 7 );
 
-        
+       
     if (vfcfloppydebug){
         if ( lastreturn != returnval){
             if (Numbercalls>1){
@@ -1890,6 +1902,7 @@ static void showFloppySector(){
                  floppyActiveDrive,
                  floppyDrives[floppyActiveDrive].track);
     }
+    
     displayBuffer( floppyBuffer, floppyBufferUsed );
 }
 

@@ -97,11 +97,28 @@ void nascom_display_change_size(int sizefactor){
     
 }
 
+// set the position for nascom display
 void nascom_display_position(int x, int y){
 
     SDL_SetWindowPosition(screen, x, y);
 
 }
+
+
+void nascom_show_window(){
+    // show the nascom window
+    SDL_ShowWindow(screen);
+    // ensure it has focus
+    SDL_SetWindowInputFocus(screen);
+
+}
+
+void nascom_hide_window(){
+    // hide the nascom window
+    SDL_HideWindow(screen);
+
+}
+
 
 // get the current size of the nascom window on the screen
 // updates the integers pointed to by w and h
@@ -115,6 +132,7 @@ void nascom_GetWindowSize(int* w, int* h){
         *h=NASCOM_DISPLAY_HEIGHT;
     }
 }
+
 
 
 /* Would be better to do the updating on demand and the push here */
@@ -242,6 +260,8 @@ static void RenderItem(int idx, int xp, int yp)
         p++;   // next font line
 	}
 }
+
+
 
 
 

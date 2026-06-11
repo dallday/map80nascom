@@ -16,8 +16,8 @@
 #define STATUS_YELLOW  0xFFC8C800
 
 
-#define STATUS_DISPLAYSCALEY       2    // sets the initial scaling of the display 
-#define STATUS_DISPLAYSCALEX       2    //  2 means use 2 pixels both across and down on each character pixel
+#define STATUS_DISPLAYSCALEY       4    // sets the initial scaling of the display 
+#define STATUS_DISPLAYSCALEX       4    //  2 means use 2 pixels both across and down on each character pixel
                                         // the -s option will set a actual scaling factor for the screen 
                                         // 
 

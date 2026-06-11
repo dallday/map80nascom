@@ -60,6 +60,10 @@ Line 2234 - the OUTD command -same issue as with OUTI
 #include "simz80.h"
 #include "disassemble.h"
 #include "cpmswitch.h"
+#include "sdlevents.h"
+
+
+
 
 // this is used to set the parity bit in the flags.
 static const unsigned char partab[256] = {
@@ -83,9 +87,9 @@ static const unsigned char partab[256] = {
 
 #define parity(x)	partab[(x)&0xff]
 
-#ifdef DEBUG
-volatile int stopsim;
-#endif
+//#ifdef DEBUG
+//volatile int stopsim;
+//#endif
 
 #define POP(x)	do {							\
 	FASTREG y = RAM(SP); SP++;					\
@@ -706,8 +710,18 @@ dfd_prefix(FASTREG IXY)
     return(IXY);
 }
 
+/*
+ * routine to run the z80 emulator
+ * PC - is the current computer Program counter
+ * int count is how often to call the refresh function
+ * int (*fnc)() - is a function to call to refresh screens keyboards etc.,
+ *  checks for requests to reset or exit emulator
+ * int  numberInstruction - number of Z80 instructions to do before returning
+ *         set to 0 to go until exit requested
+ */
+
 FASTWORK
-simz80(FASTREG PC, int count, int (*fnc)())
+simz80(FASTREG PC, int count, int (*fnc)(),int numberInstructions)
 {
 
     FASTREG AF = af[af_sel];
@@ -718,11 +732,12 @@ simz80(FASTREG PC, int count, int (*fnc)())
     FASTWORK temp, acu, sum, cbits;
     FASTWORK op;
     int n = count;
-#ifdef DEBUG
-    while (!stopsim) {
-#else
-    while (1) {
-#endif
+    int numberInstructionsLocal = numberInstructions;
+//#ifdef DEBUG
+//  while (!stopsim) {
+//#else
+  while (1) {
+//#endif
 
       // debug - displays current instruction and registers 
     if (traceon==1){
@@ -763,12 +778,16 @@ simz80(FASTREG PC, int count, int (*fnc)())
 //            printf("count %d\n",count);
             int r = (*fnc)();	// call callback function -
     				// handles screens and F type keyboard entries
-
+            // check the return value
             if (r == -1)		// if it returned -1
                 break;		// stop the emulator
-            else if (r != 0)	// if not 0
-                PC = 0;		// reset the emulator
+            else if (r != 0){	// if not 0 - can have multiple value 1=reset 2=warmreset
+                resetEmulator(r==2); // should give 1 for warm and 0 for cold 
+                PC = 0;		// reset the emulator  - PC is a parameter to this code ??
+            }
       }
+      // *********************
+      // The JumpOnResetaddress and disable of SBROM handled at end ???
 
     switch(++PC,RAM(PC-1)) {
 	case 0x00:			/* NOP */
@@ -1277,6 +1296,7 @@ simz80(FASTREG PC, int count, int (*fnc)())
 	case 0x76:			/* HALT */
 		SAVE_STATE();
 	    fprintf(stderr,"Halt instructions at address %04X \n",PC);
+        usebiosmonitor=1; // ensure we drop into bios monitor
 		return PC&0xffff;
 	case 0x77:			/* LD (HL),A */
 		PutBYTE(HL, hreg(AF));
@@ -2507,8 +2527,37 @@ simz80(FASTREG PC, int count, int (*fnc)())
 	case 0xFF:			/* RST 38H */
 		PUSH(PC); PC = 0x38;
     }
+    // last bit of the loop
+    JumpOnResetaddressfixed=0; // reset jump on reset address
+    // check if we can disable SBROM
+    if(calldisableSBROM>0){
+        // substract 1 and check the new value
+        if ( (--calldisableSBROM) == 0 ) {
+            fprintf(stdout,"Disabling SBROM");
+            DisableSBROM();
+        }
     }
+      // debug - displays current instruction and registers 
+    if (traceon==2){
+        // show registers
+        //fprintf(stdout,"doing trace\n");
+        disassembleprogram(PC,stdout,1,tracestartaddress,traceendaddress,AF,BC,DE,HL,SP);
+    }
+
+    // check if we have been requested to only run a number of instructions
+    // first was the original request 1 or more
+    if ((numberInstructions) > 0 ){
+        // then have we counted th correct number of cycles
+        // subtract 1 and returnresult to the if statement
+        if ((--numberInstructionsLocal) < 1 ){
+            break;
+        }
+    }
+  }
 /* make registers visible for debugging if interrupted */
     SAVE_STATE();
     return (PC&0xffff)|0x10000;	/* flag non-bios stop */
 }
+
+
+// end of code

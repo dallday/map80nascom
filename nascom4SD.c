@@ -68,8 +68,8 @@ extern int SDMountDisk(char * filename)
 {
     sd_file = fopen(filename, "r+b");
     if (sd_file == NULL) {
-        fprintf(stdout, "SDcard failed to load '%s', ignoring it.\n", filename);
         perror(filename);
+        fprintf(stdout, "SDcard failed to load '%s', ignoring it.\n", filename);
     }
     else {
         fprintf(stdout, "Mount SDcard, image file '%s'\n", filename);
@@ -189,7 +189,10 @@ void outPortSD (unsigned int port, unsigned int wdata)
 
 int inPortSD(unsigned int port)
 {
-    //fprintf(stdout,"INFO inPortSD with port=0x%02x poll=%d state=%d index=%d lba=0x%06x\n", port, poll, state, index, lba);
+    //if (verbose){
+    // TODO - sort out debug stuff
+    //    fprintf(stdout,"INFO inPortSD with port=0x%02x poll=%d state=%d index=%d lba=0x%06x\n", port, poll, state, index, lba);
+    //}
     switch (port) {
     case SDDATA:
         switch (state) {

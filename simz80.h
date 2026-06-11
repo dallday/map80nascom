@@ -24,10 +24,13 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA. */
 #include <string.h>
 #include "options.h"  //defines the options to use
 
+
+
 // these are in map80nascom.h but . . . . .
 extern int traceon; // set to 1 to trace z80
 extern int tracestartaddress;    // trace will only show results when the PC is within this range
 extern int traceendaddress;      //  end address of the trace range ( 0 to 0xFFFF )
+
 
 #if UCHAR_MAX == 255
 typedef uint8_t BYTE;
@@ -92,7 +95,9 @@ extern WORD IFF;
 // if using MMU then we have a set of pointers to point to ram
 // each entry points to the start of that page
 // will be 2k if RAMPAGESIZE is 2
+// DA N4 set RAMPAGESIZE to 1
 extern BYTE *rampagetable[RAMPAGETABLESIZE];
+extern BYTE *ramdefaultpagetable[RAMPAGETABLESIZE];
 // see map80ram.h
 
 // DA Fix ram as the old memory space
@@ -118,7 +123,7 @@ extern int ramlocktable[RAMPAGETABLESIZE];
 extern volatile int stopsim;
 #endif
 
-extern FASTWORK simz80(FASTREG PC, int, int (*)());
+extern FASTWORK simz80(FASTREG PC, int, int (*)(),int numberInstructions);
 
 #define FLAG_C	1
 #define FLAG_N	2
@@ -126,6 +131,7 @@ extern FASTWORK simz80(FASTREG PC, int, int (*)());
 #define FLAG_H	16
 #define FLAG_Z	64
 #define FLAG_S	128
+
 
 #define SETFLAG(f,c)	AF = (c) ? AF | FLAG_ ## f : AF & ~FLAG_ ## f
 #define TSTFLAG(f)	((AF & FLAG_ ## f) != 0)
@@ -143,16 +149,50 @@ extern FASTWORK simz80(FASTREG PC, int, int (*)());
 // need to define based on 2k pages and for a bigger virtual space
 // This defines how we work out the actual address of the byte we want in memory
 //      the entry in the rampagetable + the offset
+// DA N4 - we like to have "Jump on Reset" that the Nascom 2 can have
+//    it only effects the top 4 bits of the address so could or with rampagetable address ?
+//    so 1k address we will need to take address and >>RAMPAGESHIFTBITS
+//     and then or the result with address
 
-#define RAM(a)		*(rampagetable[((a)>>RAMPAGESHIFTBITS) & RAMPAGETABLESIZEMASK] + ((a) & RAMPAGEMASK) )
 
-static inline unsigned char
-GetBYTE(uint16_t a)
+//DA N4 -seems the declare external had to be here as need to define WORD ??
+extern int JumpOnResetaddressfixed; 
+extern int JumpOnResetaddress;
+
+// DA N4 - used to decide if SBROM can be disabled 
+extern int calldisableSBROM;
+extern int callenableSBROM;
+
+extern char emulator_mode;
+// see ram.c for real definition - need to declare them here :) DA N4
+// and reset to 0 at end of first instruction
+
+// #define RAM(a)		*(rampagetable[((a)>>RAMPAGESHIFTBITS) & RAMPAGETABLESIZEMASK] + ((a) & RAMPAGEMASK) )
+// DA N4 update macro to include a JumponReset control
+// not sure ?? should not be a problem as the  JumpOnResetaddressfixed value only used for the first "fetches"
+// and they will be from address 0000 and 0001 and 0002 ????
+#define RAM(a)		*(rampagetable[(((a)>>RAMPAGESHIFTBITS) | JumpOnResetaddressfixed) & RAMPAGETABLESIZEMASK] + ((a) & RAMPAGEMASK) )
+
+// define how to get the address of the ramdefaultpagetable 
+// it ignores any jumponreset value
+#define RAMdefault(a)		*(ramdefaultpagetable[(((a)>>RAMPAGESHIFTBITS)) & RAMPAGETABLESIZEMASK] + ((a) & RAMPAGEMASK) )
+
+static inline 
+unsigned char GetBYTE(uint16_t a)
 {
 // fix DA - change to use the RAM macro
 //    return ram[a];
       return RAM(a);
 }
+
+static inline 
+unsigned char GetBYTEdefault(uint16_t a)
+{
+// fix DA - change to use the RAM macro
+//    return ram[a];
+      return RAMdefault(a);
+}
+
 
 /* Fast write inside [3K; 64K-8K]
 
@@ -163,14 +203,14 @@ GetBYTE(uint16_t a)
 // Fix DA does not seem to be defined anywhere
 // void slow_write(unsigned int a, unsigned char v);
 
-static inline void
-PutBYTE(uint16_t a, uint16_t v)
+static inline 
+void PutBYTE(uint16_t a, uint16_t v)
 {
 // fix DA removed the basic rom for now
 // need to look to a more subtle way of setting it
 // once paging is sorted
 // use a lock table to decide if you can write to that area
-// simplier size to the pagetable
+// same size as the pagetable array
 // use the RAM macro
 
 //    if (0x800 <= a && a < 0xE000)
@@ -185,13 +225,49 @@ PutBYTE(uint16_t a, uint16_t v)
            ramromtable[ (a >> RAMPAGESHIFTBITS) & RAMPAGETABLESIZEMASK],
             v );
 */
+    // get the table entry for ramromtable etc
+    int tableentry=(a >> RAMPAGESHIFTBITS) & RAMPAGETABLESIZEMASK; 
 
-      if ( ramromtable[ (a >> RAMPAGESHIFTBITS) & RAMPAGETABLESIZEMASK] == 0 ) {
+// DA N4 was used to check when we wrote over the SBROM
+//    if ((a >= 0x1000) && (a< 0x2000 ) ){
+//        fprintf(stdout, "writing to address [%04X] value [%02X]\n",
+//                           a,v );
+//    }
+
+    if ( ramromtable[tableentry] == 0 ) {
+        // no write protection 
         RAM(a) = v;
+    }
+    else {
+      // check if in NASCOM rom area or SBROM area if mapped in
+      // uses 0x01 for NASSYS and SBROM 
+      // uses 0x02 for map80 paging errors
+      // uses 0x04 for protection via Port_PROTECT
+      if  (!(ramromtable[tableentry] & 0xFE)){
+          // write to the default area of map80 paged area
+          // not a problem with JumpOnResetaddressfixed ignore
+          // *( ramdefaultpagetable[(((a)>>RAMPAGESHIFTBITS) ) & RAMPAGETABLESIZEMASK] + ((a) & RAMPAGEMASK) ) = v;
+          RAMdefault(a)=v;
       }
+    }
 }
 // this was in original zaye code
-/*#define PutBYTE(a, v)	RAM(a) = v*/
+//#define PutBYTE(a, v)	RAM(a) = v
+
+/* 
+ * to allow me to actually write to the "default" paged memory
+ */
+
+static inline 
+void PutBYTEdefault(uint16_t a, uint16_t v)
+{
+    // get the table entry for ramromtable etc
+    // int tableentry=(a >> RAMPAGESHIFTBITS) & RAMPAGETABLESIZEMASK; 
+
+    // write to the default area of map80 paged area
+    // *( ramdefaultpagetable[(((a)>>RAMPAGESHIFTBITS)) & RAMPAGETABLESIZEMASK] + ((a) & RAMPAGEMASK) ) = v;
+    RAMdefault(a)=v;
+}
 
 
 // original from yaze
@@ -225,14 +301,20 @@ static inline void PutWORD(unsigned a, uint16_t v)
 
 }
 
-#ifndef BIOS
+//#ifndef BIOS
 extern int in(unsigned int);
 extern void out(unsigned int, unsigned char);
 #define Input(port) in(port)
 #define Output(port, value) out(port,value)
+/*
 #else
-/* Define these as macros or functions if you really want to simulate I/O */
+// Define these as macros or functions if you really want to simulate I/O 
 #define Input(port)	0
 #define Output(port, value)
 #endif
+*/
 
+// DA N4 put all the reset stuff in one routine
+extern void resetEmulator(int resetType);
+
+// end of code

@@ -184,7 +184,7 @@ void status_display_position(int x, int y){
 
 }
 
-// get the current size of the nascom window on the screen
+// get the current size of the status window on the screen
 // updates the integers pointed to by w and h
 void status_GetWindowSize(int* w, int* h){
 

@@ -18,12 +18,13 @@
 #include "cpmswitch.h"
 #include "statusdisplay.h"
 
+#include "display.h"
 
 
 /* Initialises data */
 
 // display debug messages
-int vfcdisplaydebug=VFCDISPLAYDEBUG;
+//int vfcdisplaydebug=VFCDISPLAYDEBUG;
 
 // defines where these are on the main screen
 int map80vfcdisplayxpos=MAP80VFC_DISPLAY_XPOS;
@@ -184,6 +185,20 @@ void map80vfc_display_position(int x, int y){
     SDL_SetWindowPosition(screen, x, y);
 
 }
+
+void VFC_show_window(){
+    // show the nascom window
+    SDL_ShowWindow(screen);
+    // ensure it has focus
+    SDL_SetWindowInputFocus(screen);
+}
+
+void VFC_hide_window(){
+    // hide the nascom window
+    SDL_HideWindow(screen);
+
+}
+
 
 // get the current size of the nascom window on the screen
 // updates the integers pointed to by w and h
@@ -450,9 +465,13 @@ void outPortVFCDisplay(unsigned int port, unsigned int value){
         break;
     case 0xEE:
         // select video 1
+        nascom_hide_window();
+        VFC_show_window();
         break;
     case 0xEF:
         // select video 2
+        VFC_hide_window();
+        nascom_show_window();
         break;
 
     default:
@@ -504,10 +523,14 @@ int inPortVFCDisplay(unsigned int port){
         break;
     case 0xEE:
         // select video 1
+        nascom_hide_window();
+        VFC_show_window();
         return 0;
         break;
     case 0xEF:
         // select video 2
+        VFC_hide_window();
+        nascom_show_window();
         return 0;
         break;
     default:
@@ -521,7 +544,9 @@ int inPortVFCDisplay(unsigned int port){
 }
 
 
-// process the control ports
+// process the video control port 
+// DA N4 note we are now using 1k pages not 2k pages 
+
 void processVideoControlPort(unsigned int value){
 
     // check if inverse video or top 128 character set
@@ -536,6 +561,7 @@ void processVideoControlPort(unsigned int value){
 
     int newvfcRomEntry=-1;
     int newvfcDisplayEntry=-1;
+    int newvfcAddress;
     int newvfc4kEntry;
 
     int enablerom;
@@ -543,16 +569,22 @@ void processVideoControlPort(unsigned int value){
     // sort out new 4k boundary
     // actually for rampagetable we need 2k boundaries
     // so shift out 3 bits
-    newvfc4kEntry = (value & MAP80VFC_4KBITS)>>3;
+    // DA N$ now 1k stuff so need 4 TODO Check
+    newvfcAddress = (value & MAP80VFC_4KBITS)<<8; // make the 4k value a full address
+    newvfc4kEntry = (newvfcAddress)>>RAMPAGESHIFTBITS; // now work oput start entry
 
     //printf("port value %2.2X 4kbits %2.2X rampagetable entry %2.2X 4kpage %4.4X\n", value,(value & MAP80VFC_4KBITS),newvfc4kEntry,newvfc4kEntry*RAMPAGESIZE*1024);
 
+    // this is the "link 4" setting 
+    // depends on this to say if 0 enables or disables the rom 
     enablerom=value & MAP80VFC_ROMENABLE;
 
     // check if cpm switch set
     // equivalent of setting the Link 4 on the VFC board
-    if (cpmswitchstate==1){
-        // toggle the ROM enable bit
+//    if (cpmswitchstate==1){
+    // DA N4 now reliant on the bit5 of Port_REMAP ( & 0x20 )
+    if (Port_REMAP_value & 0x20){
+        // toggle the ROM enable bitPort_REMAP
         enablerom ^= MAP80VFC_ROMENABLE;
         // printf("enable rom toggle %02X \n",enablerom);
     }
@@ -566,46 +598,67 @@ void processVideoControlPort(unsigned int value){
     }
 
     if (value & MAP80VFC_RAMENABLE){
-        newvfcDisplayEntry=newvfc4kEntry+1;
+        newvfcDisplayEntry=newvfc4kEntry+2; // add 2 as now stored as 1k areas
     }
 
     // rom entry
     if (newvfcRomEntry!=vfcRomEntry){
         // need to change rom stuff
         if (vfcRomEntry > -1){
-            // remove current entry
-            // assumes 2k pages so allow for vfc rom
-            ramlocktable[vfcRomEntry] = 0;
-            // set so the entry is ram again
-            ramromtable[vfcRomEntry] = 0;
-            // reset the 2k pointer back to default value - i.e. ram
-            rampagetable[vfcRomEntry]=ramdefaultpagetable[vfcRomEntry];
+            for (int entrynum=0;entrynum <2;entrynum++){
+                // remove current entry
+                // assumes 2k pages so allow for vfc rom
+                ramlocktable[vfcRomEntry+entrynum] = 0;
+                // set so the entry is ram again
+                // set so only unset the 0x04 bit
+                ramromtable[vfcRomEntry+entrynum] &= 0xFB;
+                // reset the 2k pointer back to default value - i.e. ram
+                rampagetable[vfcRomEntry+entrynum]=ramdefaultpagetable[vfcRomEntry+entrynum];
 
-            //printf("VFC Rom removed from memory entry %02X address reset to %p for 4k boundary %4.4X\n",vfcRomEntry,rampagetable[vfcRomEntry],vfcRomEntry*RAMPAGESIZE*1024);
+                //printf("VFC Rom removed from memory entry %02X address reset to %p for 4k boundary %4.4X\n",
+                //vfcRomEntry+entrynum,rampagetable[vfcRomEntry+entrynum],(vfcRomEntry+entrynum)*RAMPAGESIZE*1024);
+            }
+            if (vfcdisplaydebug){
+                printf("VFC ROM disabled rampagetable %02X and %02X \n",
+                    vfcRomEntry,vfcRomEntry+1);
+            }
         }
 
         vfcRomEntry=newvfcRomEntry;
 
         if (vfcRomEntry > -1){
             // to protect the Nascom monitor only do this if ramlock not already set ( nascom ram disable line )
-            if (ramlocktable[vfcRomEntry] == 0){
-                // prom enable
-                // assumes 2k pages so allow for VFC rom
-                // lock the rampage entry so map80ram wont change it ( nascom ram disable line )
-                ramlocktable[vfcRomEntry] = 1;
-                // set so the entry is rom and cannot be updated
-                ramromtable[vfcRomEntry] = 1;
-                // set the 2k pointer to the VFC Rom
-                rampagetable[vfcRomEntry]=&vfcrom[0];
-                // printf("set vfcRomentry rampagetable %02X  address %p \n",vfcRomentry,rampagetable[vfcRomentry]);
-                //printf("VFC ROM added to memory entry %02X to address to %p for 4k boundary %4.4X\n",vfcRomEntry,rampagetable[vfcRomEntry],vfcRomEntry*RAMPAGESIZE*1024);
+            if ((ramlocktable[vfcRomEntry] == 0) && (ramlocktable[vfcRomEntry] == 0) ){
+                for (int entrynum=0;entrynum <2;entrynum++){
+                    // prom enable
+                    // assumes 2k pages so allow for VFC rom
+                    // lock the rampage entry so map80ram wont change it ( nascom ram disable line )
+                    ramlocktable[vfcRomEntry+entrynum] = 2;
+                    // set so the entry is rom and cannot be updated TODO - should this be a masked to set bit 4 only
+                    ramromtable[vfcRomEntry+entrynum] |= 0x04;  // DA N4 changed to say hard ROM do not write to default memory 
+                    // set the 2k pointer to the VFC Rom - now 1k
+                    rampagetable[vfcRomEntry+entrynum]=&vfcrom[0]+(1024*entrynum);
+                    // printf("set vfcRomentry rampagetable %02X  address %p \n",vfcRomentry,rampagetable[vfcRomentry]);
+//                    printf("VFC ROM added to memory entry %02X to address to %p for 4k boundary %4.4X\n",
+//                        vfcRomEntry+entrynum,rampagetable[vfcRomEntry+entrynum],(vfcRomEntry+entrynum)*RAMPAGESIZE*1024);
+                }
+                if (vfcdisplaydebug){
+                    printf("VFC ROM enabled rampagetable %02X and %02X \n",
+                        vfcRomEntry,vfcRomEntry+1);
+                }
             }
             else {
-                fprintf(stderr,"set vfcRomentry not possible as ramlocktable[%02X] already set to %d for 4k boundary %4.4X\n",vfcRomEntry,ramlocktable[vfcRomEntry],vfcRomEntry*RAMPAGESIZE*1024);
+                fprintf(stderr,"set vfcRomentry not possible as ramlocktable[%02X] already set to %d for 4k boundary %4.4X\n",
+                vfcRomEntry,ramlocktable[vfcRomEntry],vfcRomEntry*RAMPAGESIZE*1024);
                 vfcRomEntry=-1;
             }
         }
     }
+/* *******************************
+ * handle display enable . disable
+ *********************************
+ */
+
 
     if (newvfcDisplayEntry!=vfcDisplayEntry){
 
@@ -613,8 +666,13 @@ void processVideoControlPort(unsigned int value){
             // remove current entry
             // reset the 2k pointer back to default value - i.e. ram
             ramlocktable[vfcDisplayEntry] = 0;
-
             rampagetable[vfcDisplayEntry]=ramdefaultpagetable[vfcDisplayEntry];
+            ramlocktable[vfcDisplayEntry+1] = 0;
+            rampagetable[vfcDisplayEntry+1]=ramdefaultpagetable[vfcDisplayEntry+1];
+            if (vfcdisplaydebug){
+                printf("VFC Display disabled rampagetable %02X and %02X \n",
+                    vfcDisplayEntry,vfcDisplayEntry+1);
+            }
 
             //printf("VFC Display removed from memory entry %02X address reset to %p for 4k boundary %4.4X\n",vfcDisplayEntry,rampagetable[vfcDisplayEntry],vfcDisplayEntry*RAMPAGESIZE*1024);
 
@@ -624,16 +682,26 @@ void processVideoControlPort(unsigned int value){
 
         if (vfcDisplayEntry > -1){
 
-            if (ramlocktable[vfcDisplayEntry] == 0){
+            if ((ramlocktable[vfcDisplayEntry] == 0) && (ramlocktable[vfcDisplayEntry+1] == 0)){
                 // assumes 2k pages s
                 // lock the rampage entry so map80ram wont change it ( nascom ram disable line )
-                ramlocktable[vfcDisplayEntry] = 1;
+                ramlocktable[vfcDisplayEntry] = 2;
                 // set the 2k pointer to the VFC Rom
                 rampagetable[vfcDisplayEntry]=&vfcdisplayram[0];
                 //printf("VFC Display added to memory entry %02X to address to %p for 4k boundary %4.4X\n",vfcDisplayEntry,rampagetable[vfcDisplayEntry],vfcDisplayEntry*RAMPAGESIZE*1024);
+                ramlocktable[vfcDisplayEntry+1] = 2;
+                // set the 2k pointer to the VFC Rom
+                rampagetable[vfcDisplayEntry+1]=&vfcdisplayram[0]+(1*1024);
+//                printf("VFC Display added to memory entry %02X to address to %p for 4k boundary %4.4X\n",
+//                    vfcDisplayEntry+1,rampagetable[vfcDisplayEntry+1],(vfcDisplayEntry+1)*RAMPAGESIZE*1024);
+                if (vfcdisplaydebug){
+                    printf("VFC Display enabled rampagetable %02X and %02X \n",
+                        vfcDisplayEntry,vfcDisplayEntry+1);
+                }
             }
             else {
-                fprintf(stderr,"set vfcDisplayEntry not possible as ramlocktable[%02X] already set to %d for 4k boundary %4.4X\n",vfcDisplayEntry,ramlocktable[vfcDisplayEntry],vfcDisplayEntry*RAMPAGESIZE*1024);
+                fprintf(stderr,"set vfcDisplayEntry not possible as ramlocktable[%02X] already set to %d for 4k boundary %4.4X\n",
+                    vfcDisplayEntry,ramlocktable[vfcDisplayEntry],vfcDisplayEntry*RAMPAGESIZE*1024);
                 vfcDisplayEntry=-1;
             }
         }

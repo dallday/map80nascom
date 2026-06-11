@@ -64,15 +64,18 @@ int parseNASline(int line, const char *buf, int *address, int *count, unsigned i
 // load a Nascom NAS format file into memory.
 // It can be any filename.
 // The extention is normally .nas, but can be .nal
+//   .nal seem to be the original name for .rom files not sure why
 // A file with a .rom extention will be loaded into its own ROM space.
 //   That makes it Read only and locked in the memory space - like the EPROMS on the Nascom 2 board.
 //   The limits are it must start on a 2k boundary in memory and must not be more than 8k long.
 // 
 // The file format should be an address then 8 bytes and an optional checksum all as ASCII 0-9 a-f
 // Currently it does not like where the last line is not 8 bytes - will ignore it
+//  updated by Neal so it will work with any length line 
 // returns 0 if all okay anything else is a failure
-// will load into ram space but if .nal file it will create a rom space 
+// will load into ram space but if .rom file it will create a rom space 
 // and copy it from ram space to there.
+// 
 int loadNASformat(const char *filetoload)
 {
     int retval=0;
@@ -84,7 +87,7 @@ int loadNASformat(const char *filetoload)
     int namelen=0;
 
     namelen=strlen(filetoload);
-    if (verbose) printf("Loading %s\n", filetoload);
+    printf("Loading %s\n", filetoload);
 
     // find the . in the file name
     for (count1=namelen;count1>0;count1--){
@@ -115,12 +118,12 @@ int loadNASformat(const char *filetoload)
     retval=loadNASformatinternal(filetoload,&firstaddress,&lastaddress );
     
     // printf("loaded %s from %4.4X to %4.4X \n",filetoload,firstaddress,lastaddress);
-    // allocate ROM type ( .nal file ) their own space when loading.
+    // allocate ROM type ( was .nal file ) their own space when loading.
     // Cannot just lock the area in the first 64k - as we can move that into 32k lower or uppers :)
-    // and it would appear in none locked areas.
+    // and it would appear in non locked areas.
     if (retval==0){
         if (verbose) printf("\tLoaded %s into memory at address 0x%4.4X\n",filetoload,firstaddress);
-        // check if it was a .nal type file
+        // check if it was a .rom type file
         if ( strcmp( fileext,"rom") == 0 ){
             // allocate some extra memory for it 
             int memoryused = lastaddress-firstaddress + 1;
@@ -156,8 +159,9 @@ int loadNASformat(const char *filetoload)
                     // used the slow method as the ram may not be contiguous ?
                     int copycount=0;
                     for (copycount=0;copycount<memoryused;copycount++){
-                        newmemory[copycount]=RAM(firstaddress+copycount);
-                        RAM(firstaddress+copycount)=0x76;   // reset it to HALT 
+                        // copy from the address of the ramdefaultpagetable 
+                        newmemory[copycount]=GetBYTEdefault(firstaddress+copycount);
+                        PutBYTEdefault(firstaddress+copycount,0x76);   // reset it to HALT 
                     }
                     copycount--;    // backup 1
                     // printf("Last mem copied add %4.4X count %4.4X value %2.2X \n",firstaddress+copycount,copycount,newmemory[copycount]);
@@ -168,14 +172,21 @@ int loadNASformat(const char *filetoload)
 
                     for (int memoryusedcopy=memoryused ;memoryusedcopy>0 ;memoryusedcopy-=(RAMPAGESIZE*1024), rampageentry++ )  {
                         if (rampageentry<RAMPAGETABLESIZE){
-                            rampagetable[rampageentry]=newmemory;
-                            ramromtable[rampageentry]=1;    // say it is rom
-                            ramlocktable[rampageentry]=1;   // and active nas ram disable 
-                            //printf("rampage table %2.2x set to point to %p\n",rampageentry,newmemory);
+                            // DA N4 - need to check if page already locked 
+                            if (ramromtable[rampageentry] == 0 ){
+                                rampagetable[rampageentry]=newmemory;
+                                // DA N4 - changed to set lock to 0x09 to set bits 0 and 
+                                ramromtable[rampageentry]=0x09;    // say it is extra rom and locked (0x01 for NASSYS and SBROM)
+                                ramlocktable[rampageentry]=1;   // and active nas ram disable 
+                                //printf("rampage table %2.2x set to point to %p\n",rampageentry,newmemory);
+                            } else {
+                                printf("\tcannot activate %s as ROM as rampageentry %d already allocated to ROM \n",filetoload,rampageentry);
+                            }
+                            
                         }
                         else{
                             // should not happen but - - - -
-                            printf("\tError - rampageentry %d past top of RAMPAGETABLESIZE %d\n",rampageentry,RAMPAGETABLESIZE);
+                            printf("\tError - file %s - rampageentry %d past top of RAMPAGETABLESIZE %d\n",filetoload, rampageentry,RAMPAGETABLESIZE);
                             break;
                         }
                         newmemory+=(RAMPAGESIZE*1024);
@@ -192,6 +203,11 @@ int loadNASformat(const char *filetoload)
 }
 
 // process the file and returns first (lowest) and last (highest) address used
+// stores the data using the straight put but ... problem if using rom areas
+// Now stores using the putBYTE routine 
+// think need a routine to get the address from the ramdefaultpagetable which is always the map80 memory
+//
+ 
 int loadNASformatinternal(const char *filetoload, int *firstaddressused, int *lastaddressused )
 {
     int address;
@@ -224,7 +240,12 @@ int loadNASformatinternal(const char *filetoload, int *firstaddressused, int *la
         }
 
         for (int i=0; i<validbytes; i++) {
-            RAM(address)=bytes[i];
+            // DA N4 - small issue that the statement would overwrite a rom area if tried
+            //RAM(address)=bytes[i];
+            // this one will put it into underlying memory if rom are used
+            // PutBYTE(address,bytes[i]);
+            // decided needed a way of getting the default address from the ramdefaultpagetable
+            PutBYTEdefault(address,bytes[i]);
             if (lastaddress<address){
                 lastaddress=address;
             }
@@ -253,8 +274,16 @@ int loadNASformatinternal(const char *filetoload, int *firstaddressused, int *la
 }
 
 // load a nas file into a specific part of memory -- used to load the nassys3 and map80vfc rom file
+// The calling process has declared the memory to use and how big it is.
+// DA N4 problem as SBROM.nas has address 1000 in the file 
+// So fixed the code to take the address of the first line and use that to reset the code start address to 0
+//
+
 int loadNASformatspecial(const char *filetoload, unsigned char *memory, int memorySize)
 {
+    int startaddressinfile=-1;  // DA N4 on a special load take the first address away from each line to make it start at 0
+                                // -1 used to indicate not yet recorded first address
+
     int address;
     int validbytes;
     unsigned int bytes[8];
@@ -263,7 +292,7 @@ int loadNASformatspecial(const char *filetoload, unsigned char *memory, int memo
     int retval = 0;   // defaults to all okay
     int totalbytes = 0;
 
-    if (verbose) printf("Loading %s\n", filetoload);
+    printf("Loading %s\n", filetoload);
 
     char line[80]; // one line from the .nas file
 
@@ -278,11 +307,14 @@ int loadNASformatspecial(const char *filetoload, unsigned char *memory, int memo
     while (fgets(line, sizeof line, f) != NULL) {
         lineNumber++;
         retval |= parseNASline(lineNumber, line, &address, &validbytes, bytes);
-
+        if (startaddressinfile < 0 ){
+            startaddressinfile=address;
+        }
+        int addressfix=address-startaddressinfile;
         for (int i=0; i<validbytes; i++){
-            if (address < memorySize){
-                memory[address] = bytes[i];
-                address++;
+            if (addressfix < memorySize){
+                memory[addressfix] = bytes[i];
+                addressfix++;
                 totalbytes++;
             }
             else {
