@@ -21,6 +21,7 @@ The emulator is designed to run from a terminal window.
 
 The command is 
 map80nascom {flags} files
+
         {flags}
         -n           emulator Nascom 2, the default.
         -v           emulate VFC boot for CPM.
