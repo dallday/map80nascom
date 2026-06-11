@@ -1,4 +1,4 @@
-#Floppy discs
+# Floppy discs
 ------------
 
 The format of the floppy disc image is specified in the .config file.
@@ -17,10 +17,12 @@ although not all the options have been implimented.
 * cpm001system22.config - CPM 2.2 boot disk
 * cpm3.config   - original CPM 3 boot disk
 * cpm3seq.config - CPM3 boot disk with Y2k fix.
+* cpmutils.config - some utilites for cpm3
+* dummy.config   - a sample config file
 
-
-#Config file Parameters
+# Config file Parameters
 ----------------------
+    see diskconfig.txt
 
 Comments can be included by the first non space entry on the line being a #
 

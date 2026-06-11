@@ -1,0 +1,37 @@
+The configuration details for each disk image are held in a .config file.
+The config file has parameters based on those used by the Flast Floppy software for the gotek drive.
+There is an additional parameter that defines where to find the actual image file.
+
+imagefilename   defines where the actual image file is to be found
+cyls            defines the number of cylinders or tracks in the image
+heads           defines how many heads in the image (1 or 2)
+secs            defines how many sectors there are per track 
+bps             defines the number of bytes per sector
+id              defines the first sector number
+file-layout     defines the layout of the tracks in the image
+                it has the possible values of 
+                    sequential: Sequential cylinder ordering: all side 0, then side 1
+                    interleaved: Interleaved cylinder ordering: c0s0, c0s1, c1s0, c1s1, ...
+                    reverse-side0: Side-0 cylinders are in reverse order (high to low)
+                    reverse-side1: Side-1 cylinders are in reverse order (high to low)
+                    sides-swapped: Sides 0 and 1 ordering is swapped in the image file
+                Multiple values can be specified, separated by commas (eg. sequential,reverse-side1)
+                    reverse-side0, reverse-side1, and sides-swapped features have not been tested as yet.
+                        and may not work
+write-protect   specified if the disc is right protected. value Y or N.
+
+
+any other values will be ignored
+
+e.g.
+
+# image config file for CPM2 disc
+imagefilename=disks/cpm001system22seq.img
+cyls = 80
+heads = 2
+secs = 10
+bps = 512
+id=0
+file-layout = sequential
+
+
