@@ -14,6 +14,8 @@
 #define STATUS_BLACK   0xFF000000 
 #define STATUS_ORANGE  0xFFFF7F00
 #define STATUS_YELLOW  0xFFC8C800
+#define STATUS_BACKGROUND 0xFFE0E0E0
+
 
 
 #define STATUS_DISPLAYSCALEY       4    // sets the initial scaling of the display 
@@ -21,8 +23,8 @@
                                         // the -s option will set a actual scaling factor for the screen 
                                         // 
 
-#define STATUS_DISPLAYCHARACTERS  48    
-#define STATUS_DISPLAYLINES       16
+#define STATUS_DISPLAYCHARACTERS  48  // how many across     
+#define STATUS_DISPLAYLINES       24 // 16 // how many down
 #define STATUS_DISPLAYRAMSIZE     ( STATUS_DISPLAYCHARACTERS * STATUS_DISPLAYSCALEX * STATUS_DISPLAYLINES * STATUS_DISPLAYSCALEY )
 
 #define STATUS_BYTESPERCHARACTER 16     // number of bytes in each character from the font file
@@ -57,6 +59,7 @@ void status_display_position(int x, int y);
 // updates the integers pointed to by w and h
 void status_GetWindowSize(int* w, int* h);
 
+void status_clearPixels();
 
 void status_display_refresh(void);
 void status_display_show_string(char * stringdata, unsigned int xpos, unsigned int ypos);
@@ -64,6 +67,11 @@ void status_display_show_string_full(char * stringdata, unsigned int xpixelpos, 
         unsigned fontxscale, unsigned fontyscale,  uint32_t charcolour, uint32_t backgroundcolour);
 void status_display_show_chars(char * stringdata, unsigned int xcharpos, unsigned int ycharpos);
 void status_display_show_chars_full(char * stringdata, unsigned int xcharpos, unsigned int ycharpos, 
+        unsigned fontxscale, unsigned fontyscale,  uint32_t charcolour, uint32_t backgroundcolour);
+
+void status_display_show_char(char onechar, unsigned int xcharpos, unsigned int ycharpos);
+int checkIfPixelsInRange(unsigned int xpixelpos, unsigned int ypixelpos);
+void status_display_show_char_full(char onechar, unsigned int xcharpos, unsigned int ycharpos, 
         unsigned fontxscale, unsigned fontyscale,  uint32_t charcolour, uint32_t backgroundcolour);
 
 // position of screen on computer screen

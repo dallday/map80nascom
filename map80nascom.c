@@ -67,11 +67,21 @@
             that line. New code accepts 1-9 bytes of data and only checksums if
             all 9 are present. Refactored to share code between both load routines.     
 
+ *  Version 9
+ *  changed to input options to allow my to switch to nascom 2 -n, VFC C\PM -v, and nascom 4 -4
+ * 
+ *  emulated a lot of the Nascom 4 hardware 
+ * 
+ *  emulates the PIO on the mascom
+ *     the output lines go nowhere at present 
+ *     the interrupt and control lines have not been implimented
+ *  
  * 
  * Note I used codelite to build this 
- * you need to chage the working directory from $(IntermediateDirectory) 
+ * you need to change the working directory from $(IntermediateDirectory) 
  * to the diredtory that contains the rom etc diretories
  * try $(ProjectPath) nope ?
+ * or just copy the rom folder to the debug folder etc.,
  * 
  * 
  *  This code contains the main function plus handles all initial port inputs and outputs
@@ -102,6 +112,7 @@
 #include "chsclockcard.h"
 #include "serial.h"
 #include "utilities.h"
+#include "pio.h"
 
 /*
  *  global variables
@@ -651,7 +662,33 @@ int main(int argc, char **argv){
     // 0 means do a cold restart
     resetEmulator(0);
 
+/*
+ * some code to display the character set
+ */
 
+/* 
+     char teststring[] =
+    { '0', ' ','1',' ','2',' ', '3',' ', '4' ,' ', '5' ,' ', '6',' ','7',' ','8',' ','9',' ','A', ' ','B',' ','C',' ','D',' ','E',' ','F',' ' ,0x00 };
+
+    status_display_show_chars(teststring,2,9);
+    
+    for(int row=0;row<0x10;row++){
+        if (row<0x0A){
+            status_display_show_char(row+'0',0,10+(row*2));
+        }else {
+            status_display_show_char(row+'A'-11,0,10+(row*2));
+        }
+        for (int col=0;col<0x10;col++){
+            status_display_show_char((row*0x10+col),2+(col*2),10+(row*2));
+        }
+        sim_delay(); //show it
+    }
+     
+*/
+    // display the outline for the pio status
+    displayPIOoutline();
+    
+    
     MAP80nascomMonitor(firstcommand);
 
     // da n4 changed to only do this if not VFC (cpm) mode
@@ -725,6 +762,20 @@ void out(unsigned int port, unsigned char value)
             writeserialout(value);
             break;
             // TODO - add PIO and CTC controls 
+            
+        case 04: // PIO port A data input and output
+            PIO_Porta_data_out(value);
+            break;
+        case 05: //  PIO port B data input and output
+            PIO_Portb_data_out(value);
+            break;
+        case 06: //  PIO port A control
+            PIO_Porta_control_out(value);
+            break;
+        case 07: // PIO port B control
+            PIO_Portb_control_out(value);
+            break;
+
         default:
             if (verbose){
                 fprintf(stdout, "Unknown output to port %02x value %02x\n", port, value);
@@ -879,6 +930,18 @@ int in(unsigned int port)
                 // printf("Uart status check %2.2X, serial ready %2.2X, tape led %2.2X, \n",uart_status,serial_input_available,tape_led);
                 //return uart_status;
             }
+            break;
+        case 04: // PIO port A data input and output
+            retval=PIO_Porta_data_in();
+            break;
+        case 05: //  PIO port B data input and output
+            retval=PIO_Portb_data_in();
+            break;
+        case 06: //  PIO port A control
+            retval=PIO_Porta_control_in();
+            break;
+        case 07: // PIO port B control
+            retval=PIO_Portb_control_in();
             break;
         default:
             retval= 0xFF;

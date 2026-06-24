@@ -17,6 +17,7 @@
 #include "statusdisplay.h"
 #include "utilities.h"
 #include "serial.h"
+#include "pio.h"
 
 
 
@@ -28,7 +29,7 @@ static SDL_Texture *texture=NULL;
 static uint32_t pixmap[STATUS_DISPLAY_HEIGHT * STATUS_DISPLAY_WIDTH];
 
 // a pointer to the memory where the screen characters are stored.
-static BYTE *statusScreenRam=NULL;
+//static BYTE *statusScreenRam=NULL;
 
 static int needsrefresh=0;
 
@@ -59,7 +60,7 @@ void displaytapestatus(void){
     }
     sprintf(strBuffer,"Serial in  %06ld file: %s", tape_in_pos, strserialname ); 
 
-    status_display_show_chars_full(strBuffer,0,STATUS_DISPLAYLINES-2,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_LIGHTBLUE,STATUS_BLACK);
+    status_display_show_chars_full(strBuffer,0,STATUS_DISPLAYLINES-2,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_LIGHTBLUE,STATUS_BACKGROUND);
 
     if (serial_output_filename==NULL){
         copystringtobuffer(strserialname,nofile,20);
@@ -72,16 +73,16 @@ void displaytapestatus(void){
 
     sprintf(strBuffer,"Serial out %06ld file: %s", tape_out_pos, strserialname ); 
 
-    status_display_show_chars_full(strBuffer,0,STATUS_DISPLAYLINES-1,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_LIGHTBLUE,STATUS_BLACK);
+    status_display_show_chars_full(strBuffer,0,STATUS_DISPLAYLINES-1,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_LIGHTBLUE,STATUS_BACKGROUND);
     
     
     sprintf(strBuffer,"Tape LED "); 
         
-    status_display_show_chars_full(strBuffer,0,STATUS_DISPLAYLINES-3,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_LIGHTBLUE,STATUS_BLACK);
+    status_display_show_chars_full(strBuffer,0,STATUS_DISPLAYLINES-3,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_LIGHTBLUE,STATUS_BACKGROUND);
 
     sprintf(strBuffer,"%c","\xB8\xB9"[tape_led & 0x1]); 
         
-    status_display_show_chars_full(strBuffer,10,STATUS_DISPLAYLINES-3,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_RED,STATUS_BLACK);
+    status_display_show_chars_full(strBuffer,10,STATUS_DISPLAYLINES-3,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_RED,STATUS_BACKGROUND);
     
     if (serial_input_available){
         displaynodata+=3;
@@ -89,7 +90,7 @@ void displaytapestatus(void){
     
     sprintf(strBuffer,"%s",displaynodata); 
         
-    status_display_show_chars_full(strBuffer,15,STATUS_DISPLAYLINES-3,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_LIGHTBLUE,STATUS_BLACK);
+    status_display_show_chars_full(strBuffer,15,STATUS_DISPLAYLINES-3,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_LIGHTBLUE,STATUS_BACKGROUND);
     //status_display_show_chars_full("SS",10,STATUS_DISPLAYLINES,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_RED,STATUS_BLACK);
 
 }
@@ -102,7 +103,7 @@ void displaytapestatus(void){
 int status_create_screen(BYTE *screenMemory){
 
     // screen memory 
-    statusScreenRam=screenMemory;
+    //statusScreenRam=screenMemory;
 
 
     /*
@@ -159,12 +160,18 @@ int status_create_screen(BYTE *screenMemory){
     // colour is red, green, blue, alpha 
     // the alpha value used to draw on the rendering target; usually SDL_ALPHA_OPAQUE (255).
     //  Use SDL_SetRenderDrawBlendMode to specify how the alpha channel is used
-    SDL_SetRenderDrawColor(rend, 0, 0, 0, 255);
+    SDL_SetRenderDrawColor(rend, 255, 255, 255, 255);
     SDL_RenderClear(rend);
     SDL_RenderPresent(rend);
 
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
     SDL_RenderSetLogicalSize(rend, STATUS_DISPLAY_WIDTH, STATUS_DISPLAY_HEIGHT);
+
+    printf(" width %d ",STATUS_DISPLAY_WIDTH);
+    printf(" hieght %d ",STATUS_DISPLAY_HEIGHT);
+
+    status_clearPixels();
+    //SDL_SetRenderDrawColor(rend, 255, 255, 255, 255);
 
     return 0;
 
@@ -239,6 +246,9 @@ void status_display_refresh(void)
         sr.y = 0;
         sr.w = STATUS_DISPLAY_WIDTH;
         sr.h = STATUS_DISPLAY_HEIGHT;
+//ensure white background ?
+        SDL_SetRenderDrawColor(rend, 255, 255, 255, 255);
+
         // convert pixel data into a "texture" think 4 bytes per pixel 
         SDL_UpdateTexture(texture, NULL, pixmap, STATUS_DISPLAY_WIDTH * 4 );
         // remove current picture
@@ -247,7 +257,46 @@ void status_display_refresh(void)
         SDL_RenderCopy(rend, texture, NULL, &sr);
         // display it - replace current frame with new data
         SDL_RenderPresent(rend);
+
+        SDL_SetRenderDrawColor(rend, 255, 255, 255, 255);
+        // remove current picture
+        SDL_RenderClear(rend);
+
     }
+}
+
+
+/*
+ * check if the x y pixels are within the screen display area 
+ * returns 1 if all okay
+ * else 0
+ * actually assumes we are printing characters 
+ * so needs to be 1 less in each direction ???? TODO
+ * 
+ */
+int checkIfPixelsInRange(unsigned int xpixelpos, unsigned int ypixelpos){
+
+    if (xpixelpos >= STATUS_DISPLAY_WIDTH){
+        fprintf(stderr,"x pos %d out of bounds %d\n",xpixelpos,STATUS_DISPLAY_WIDTH);
+        return 0;
+    }
+    if (ypixelpos >= STATUS_DISPLAY_HEIGHT) {
+        fprintf(stderr,"y pos %d out of bounds %d\n",ypixelpos,STATUS_DISPLAY_HEIGHT);
+        return 0;
+    }
+    return 1;
+}
+
+/*
+ * display a character on the status screen
+ * using character position
+ */
+void status_display_show_char(char onechar, unsigned int xcharpos, unsigned int ycharpos)
+{
+    char stringdata[] = {onechar, 0x00};
+    
+    status_display_show_chars_full(stringdata,xcharpos,ycharpos,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_BLACK,STATUS_BACKGROUND);
+
 }
 
 
@@ -258,7 +307,8 @@ void status_display_refresh(void)
 void status_display_show_chars(char * stringdata, unsigned int xcharpos, unsigned int ycharpos)
 {
     
-    status_display_show_chars_full(stringdata,xcharpos,ycharpos,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,0xFFFFFFFF,0x0);
+    // character colour, background colour
+    status_display_show_chars_full(stringdata,xcharpos,ycharpos,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_BLACK,STATUS_BACKGROUND);
 
 }
 /*
@@ -283,8 +333,9 @@ void status_display_show_chars_full(char * stringdata, unsigned int xcharpos, un
 void status_display_show_string(char * stringdata, unsigned int xpixelpos, unsigned int ypixelpos)
 {
 
-    status_display_show_string_full(stringdata,xpixelpos,ypixelpos,1,1,0xFFFFFFFF,0x0);
+    status_display_show_string_full(stringdata,xpixelpos,ypixelpos,1,1,STATUS_BLACK,STATUS_BACKGROUND);
 }
+
 /*
  * display a string on the screen using pixel value x and y 
  *   and allow setting of scale and colour
@@ -298,6 +349,10 @@ void status_display_show_string_full(char * stringdata, unsigned int xpixelpos, 
     unsigned int ypos=ypixelpos;
     
     needsrefresh=1;
+    if (checkIfPixelsInRange(xpos,ypos)==0){
+        return;
+    }
+/*
     if (xpos >= STATUS_DISPLAY_WIDTH){
         fprintf(stderr,"x pos %d out of bounds %d\n",xpos,STATUS_DISPLAY_WIDTH);
         return;
@@ -306,7 +361,7 @@ void status_display_show_string_full(char * stringdata, unsigned int xpixelpos, 
         fprintf(stderr,"y pos %d out of bounds %d\n",ypos,STATUS_DISPLAY_HEIGHT);
         return;
     }
-    
+ */   
     // Where in the pixel map to store the first character on the screen
     int characterpos = 0;
     while (stringdata[characterpos]!=0){
@@ -348,7 +403,38 @@ void status_display_show_string_full(char * stringdata, unsigned int xpixelpos, 
 }
 
 
+void status_display_show_char_full(char onechar, unsigned int xcharpos, unsigned int ycharpos, 
+        unsigned fontxscale, unsigned fontyscale,  uint32_t charcolour, uint32_t backgroundcolour)
+{
 
+    int xpixelpos = (STATUS_DISPLAY_X_OFFSET)+(xcharpos*STATUS_FONT_W*fontxscale);
+    int ypixelpos = (STATUS_DISPLAY_Y_OFFSET)+(ycharpos*STATUS_FONT_H*fontyscale);
+
+    char stringdata[]={ onechar, 0x0 };
+    
+    status_display_show_string_full(stringdata, xpixelpos, ypixelpos, 
+        fontxscale, fontyscale,  charcolour, backgroundcolour);
+}
+
+void status_clearPixels(){
+
+// makes it all white    
+//    memset(pixmap, 255, STATUS_DISPLAY_HEIGHT * STATUS_DISPLAY_WIDTH * sizeof(uint32_t));
+
+    
+
+    for ( int xpixel = 0 ; xpixel<(STATUS_DISPLAY_HEIGHT * STATUS_DISPLAY_WIDTH) ; xpixel++) {
+        
+        pixmap[xpixel] = STATUS_BACKGROUND;
+        
+//        if (xpixel > 1450){
+//            printf("so far :)");
+//            break;
+ //       }
+        
+    }
+
+}
 
 // end of file
 

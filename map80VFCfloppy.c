@@ -149,7 +149,7 @@ static void displayfloppystatus(void){
             drivestatus=0xB8;
         }
         strBuffer[0]=drivestatus;
-        status_display_show_chars_full(strBuffer,2,(driveno*2)+1,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_RED,STATUS_BLACK);
+        status_display_show_chars_full(strBuffer,2,(driveno*2)+1,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_RED,STATUS_BACKGROUND);
         
     }
    
@@ -161,7 +161,7 @@ static void displayfloppyposition(){
     
     if ((floppyActiveDrive>-1) && (floppyActiveDrive<4)){
         sprintf(strBuffer,"Track %2d Head %d Sector %2d      ",floppyDrives[floppyActiveDrive].track,floppySide,floppyReadSector()); 
-        status_display_show_chars_full(strBuffer,5,(floppyActiveDrive*2)+2,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_YELLOW,STATUS_BLACK);
+        status_display_show_chars_full(strBuffer,5,(floppyActiveDrive*2)+2,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_YELLOW,STATUS_BACKGROUND);
         //printf("Floppy %d %s\n",floppyActiveDrive,strBuffer);
     }
    
@@ -176,7 +176,7 @@ void displayfloppydetails(){
     char drivestatus=0;
     char filename[100];
     int linenumber=1;
-    status_display_show_chars_full("Drives",0,0,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_WHITE,STATUS_BLACK);
+    status_display_show_chars_full("Drives",0,0,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_BLACK,STATUS_BACKGROUND);
     for (int driveno=0;driveno<4;driveno++){
         if (floppyDrives[driveno].fileNamePointer == NULL ){
             drivestatus=0xB8;
@@ -201,11 +201,11 @@ void displayfloppydetails(){
         strBuffer[0]=driveno+0x30;
         strBuffer[1]=' ';
         strBuffer[2]=0;
-        status_display_show_chars_full(strBuffer,0,linenumber,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_ORANGE,STATUS_BLACK);
+        status_display_show_chars_full(strBuffer,0,linenumber,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_ORANGE,STATUS_BACKGROUND);
         strBuffer[0]=drivestatus;
-        status_display_show_chars_full(strBuffer,2,linenumber,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_RED,STATUS_BLACK);
+        status_display_show_chars_full(strBuffer,2,linenumber,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_RED,STATUS_BACKGROUND);
         // sprintf(strBuffer,"%d "%c %s ", driveno, drivestatus, filename ); 
-        status_display_show_chars_full(filename,4,linenumber,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_YELLOW,STATUS_BLACK);
+        status_display_show_chars_full(filename,4,linenumber,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_YELLOW,STATUS_BACKGROUND);
         linenumber+=2;
         
     }
@@ -325,7 +325,7 @@ int floppyMountDisk(unsigned int drive, char *configfilename){
         //fprintf(stdout, "Mount Floppy drive - config file '%s', line %d is '%s'. \n", configfilename,filelinenumber,buffer);
         filelinenumber++;
         if (strlen(buffer) >249 ){
-            fprintf(stdout, "Mount Floppy drive - floppy config file '%s', line %d is too long - ignoring. \n", configfilename,filelinenumber);
+            fprintf(stdout, "Mount Floppy drive - config file '%s', line %d is too long - ignoring. \n", configfilename,filelinenumber);
             // skip to end of line in the file
             ch = buffer[249];
             while (ch != -1 && ch != '\n'){
@@ -527,13 +527,13 @@ int floppyMountDisk(unsigned int drive, char *configfilename){
 
         }
         else {
-            fprintf(stdout,"Mount Floppy drive - config line %d keyword='%s' unknown - ignored \n",filelinenumber, keyword);
+            fprintf(stdout,"Mount Floppy drive - config file '%s', config line %d keyword='%s' unknown - ignored \n",configfilename,filelinenumber, keyword);
         }
 
         if (notimplemented==1){
             // da apr 2026 changed to vfcfloppydebug
             if (vfcfloppydebug){
-                printf("Mount Floppy drive - config line %d keyword='%s' not yet implemented\n",filelinenumber, keyword);
+                printf("Mount Floppy drive - config file '%s', config line %d keyword='%s' not yet implemented\n",configfilename,filelinenumber, keyword);
             }
         }
     }
