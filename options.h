@@ -12,6 +12,10 @@
 #ifndef options_h
 #define options_h
 
+
+#define DEFAULT_PORT 5555
+
+
 // keyboard - 
 // 0 = us keyboard
 // 1 = uk keyboard

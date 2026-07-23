@@ -1,193 +1,353 @@
-/*
- *   module to handle status screen stuff
- */
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <getopt.h>
-#include <ctype.h>
-#include <stdbool.h>
 #include <SDL2/SDL.h>
-
-#include "options.h"  //defines the options to map80nascom
-#include "simz80.h"
-#include "map80nascom.h"
-#include "map80ram.h"
-#include "map80VFCcharRom1.h"
+#include <stdio.h>
+#include <string.h>
+#include <stdint.h>
+#include "options.h"
 #include "statusdisplay.h"
-#include "utilities.h"
-#include "serial.h"
-#include "pio.h"
+
+// --- Global state definitions ---
+
+StatusScreenContext status_ctx;
+StatusScreenChars status_screen_chars;
+StatusScreenColors status_screen_fg_colors;
+StatusScreenColors status_screen_bg_colors;
+StatusCursorState status_cursor;
+
+// change so we can mofify the font being used :) 
+//uint8_t* status_font = nascom_font_raw;
+//uint8_t STATUS_CHAR_W=8;
+//uint8_t STATUS_CHAR_H=16;
+//uint8_t STATUS_FONT_BYTES_CHAR=16;
+uint8_t* status_font = map80VFCcharRom1;
+uint8_t STATUS_CHAR_W=8;
+uint8_t STATUS_CHAR_H=10;
+uint8_t STATUS_FONT_BYTES_CHAR=16;
 
 
+// --- status_ function implementations ---
 
-/* Initialises data */
-
-static SDL_Window *screen=NULL;
-static SDL_Renderer *rend=NULL;
-static SDL_Texture *texture=NULL;
-static uint32_t pixmap[STATUS_DISPLAY_HEIGHT * STATUS_DISPLAY_WIDTH];
-
-// a pointer to the memory where the screen characters are stored.
-//static BYTE *statusScreenRam=NULL;
-
-static int needsrefresh=0;
-
-int statusdisplayxpos=STATUS_DISPLAY_XPOS;
-int statusdisplayypos=STATUS_DISPLAY_YPOS;
-
-
-void displaytapestatus(void){
-
-    char nofile[]="no file";
-    // use this to display if data avialable or not 
-    // reposition the pointer at i if data available 
-    char nodata[]="no input data available   ";
-    char * displaynodata=nodata;
-    // buffer to build strings into 
-    // da apr 2026 increased size to avoid overflow
-    char strBuffer[150];
-    // build filename string into 
-    char strserialname[100];
-
-    if (serial_input_filename==NULL){
-        copystringtobuffer(strserialname,nofile,20);
-        //strserialname[0]=0;
-    }
-    else{
-        copystringtobuffer(strserialname,serial_input_filename,20);
-        // sprintf(strBuffer,"Serial in: %s %c position:%06ld ",strserialname, " *"[tape_led & 0x1] , tape_in_pos ); 
-    }
-    sprintf(strBuffer,"Serial in  %06ld file: %s", tape_in_pos, strserialname ); 
-
-    status_display_show_chars_full(strBuffer,0,STATUS_DISPLAYLINES-2,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_LIGHTBLUE,STATUS_BACKGROUND);
-
-    if (serial_output_filename==NULL){
-        copystringtobuffer(strserialname,nofile,20);
-        //strserialname[0]=0;
-    }
-    else{
-        copystringtobuffer(strserialname,serial_output_filename,20);
-        // sprintf(strBuffer,"Serial in: %s %c position:%06ld ",strserialname, " *"[tape_led & 0x1] , tape_in_pos ); 
-    }
-
-    sprintf(strBuffer,"Serial out %06ld file: %s", tape_out_pos, strserialname ); 
-
-    status_display_show_chars_full(strBuffer,0,STATUS_DISPLAYLINES-1,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_LIGHTBLUE,STATUS_BACKGROUND);
-    
-    
-    sprintf(strBuffer,"Tape LED "); 
-        
-    status_display_show_chars_full(strBuffer,0,STATUS_DISPLAYLINES-3,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_LIGHTBLUE,STATUS_BACKGROUND);
-
-    sprintf(strBuffer,"%c","\xB8\xB9"[tape_led & 0x1]); 
-        
-    status_display_show_chars_full(strBuffer,10,STATUS_DISPLAYLINES-3,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_RED,STATUS_BACKGROUND);
-    
-    if (serial_input_available){
-        displaynodata+=3;
-    }
-    
-    sprintf(strBuffer,"%s",displaynodata); 
-        
-    status_display_show_chars_full(strBuffer,15,STATUS_DISPLAYLINES-3,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_LIGHTBLUE,STATUS_BACKGROUND);
-    //status_display_show_chars_full("SS",10,STATUS_DISPLAYLINES,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_RED,STATUS_BLACK);
-
-}
-
-
-
-
-
-
-int status_create_screen(BYTE *screenMemory){
-
-    // screen memory 
-    //statusScreenRam=screenMemory;
-
-
-    /*
-    * Initialises the SDL video subsystem (as well as the events subsystem).
-    * Returns 0 on success or a negative error code on failure using SDL_GetError().
-    */
-    /* see sdlevents.c
-        // done in the nascom display ?? but seems happy to be called twice ?
-        if (SDL_Init(SDL_INIT_VIDEO) != 0) {
-            fprintf(stderr, "SDL failed to initialise: %s\n", SDL_GetError());
-            return 1;
-    }
-    */
-
-    /* Creates a SDL window */
-
-    screen = SDL_CreateWindow("Map80Nascom Status", // Title of the SDL window 
-                statusdisplayxpos, //  Position x of the window 
-                statusdisplayypos, //  Position y of the window 
-                STATUS_DISPLAY_WIDTH, // Width of the window in pixels 
-                STATUS_DISPLAY_HEIGHT, // Height of the window in pixels 
-                SDL_WINDOW_RESIZABLE);   // SDL_WINDOW_RESIZABLE removed stay as is // Additional flag(s)
-
-    // printf("display width %d display height %d \n",STATUS_DISPLAY_WIDTH,STATUS_DISPLAY_HEIGHT);
-
-    /* Checks if window has been created; if not, exits program */
-
-    if (screen == NULL) {
-        fprintf(stderr, "SDL VFC window failed to initialise: %s\n", SDL_GetError());
+int status_create_screen(int pixel_scale) {
+    status_ctx.window = SDL_CreateWindow(
+        "Map80Nascom status screen",
+        STATUS_DISPLAY_XPOS,
+        STATUS_DISPLAY_YPOS,
+        STATUS_TOTAL_W * pixel_scale, STATUS_TOTAL_H * pixel_scale,
+        SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
+    );
+    if (!status_ctx.window) {
+        fprintf(stderr, "SDL_CreateWindow status screen failed: %s\n", SDL_GetError());
         return 1;
     }
 
-    rend = SDL_CreateRenderer(screen, -1, 0);
-    if (rend == NULL) {
-        fprintf(stderr, "Unable to create renderer: %s\n", SDL_GetError());
+    status_ctx.renderer = SDL_CreateRenderer(status_ctx.window, -1, SDL_RENDERER_ACCELERATED);
+    if (!status_ctx.renderer) {
+        fprintf(stderr, "SDL_CreateRenderer status screen failed: %s\n", SDL_GetError());
         return 1;
     }
 
-    if (texture)
-    SDL_DestroyTexture(texture);
-
-    // ARGB8888 Stride is 32 bits, 32 bits per pixel, 4 uniform components of 8 bits.
-    // https://en.wikipedia.org/wiki/RGBA_color_model
-    //
-    texture = SDL_CreateTexture(rend,
-                                SDL_PIXELFORMAT_ARGB8888,
-                                SDL_TEXTUREACCESS_STREAMING,
-                                STATUS_DISPLAY_WIDTH,
-                                STATUS_DISPLAY_HEIGHT);
-    if (texture == NULL) {
-        fprintf(stderr, "Unable to create display texture: %s\n", SDL_GetError());
+    // The texture we draw the character display into at native resolution;
+    // SDL stretches it to the window size when we copy it to the renderer.
+    status_ctx.texture = SDL_CreateTexture(
+        status_ctx.renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
+        STATUS_TOTAL_W, STATUS_TOTAL_H
+    );
+    if (!status_ctx.texture) {
+        fprintf(stderr, "SDL_CreateTexture status screen failed: %s\n", SDL_GetError());
         return 1;
     }
-    // colour is red, green, blue, alpha 
-    // the alpha value used to draw on the rendering target; usually SDL_ALPHA_OPAQUE (255).
-    //  Use SDL_SetRenderDrawBlendMode to specify how the alpha channel is used
-    SDL_SetRenderDrawColor(rend, 255, 255, 255, 255);
-    SDL_RenderClear(rend);
-    SDL_RenderPresent(rend);
+    // Use nearest-neighbor scaling to keep the pixel-art look crisp.
+    SDL_SetTextureScaleMode(status_ctx.texture, SDL_ScaleModeNearest);
 
-    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
-    SDL_RenderSetLogicalSize(rend, STATUS_DISPLAY_WIDTH, STATUS_DISPLAY_HEIGHT);
+    status_ctx.window_id = SDL_GetWindowID(status_ctx.window);
 
-    printf(" width %d ",STATUS_DISPLAY_WIDTH);
-    printf(" hieght %d ",STATUS_DISPLAY_HEIGHT);
+    SDL_ShowCursor(SDL_ENABLE);
+ //   SDL_SetWindowGrab(status_ctx.window, SDL_TRUE);
 
-    status_clearPixels();
-    //SDL_SetRenderDrawColor(rend, 255, 255, 255, 255);
+    // Initialize the screen buffers: all spaces, STATUS_COLOR_BACKGROUND, black foreground.
+    memset(status_screen_chars, ' ', sizeof(status_screen_chars));
+    for (int r = 0; r < STATUS_ROWS; r++) {
+        for (int c = 0; c < STATUS_COLS; c++) {
+            status_screen_fg_colors[r][c] = STATUS_COLOR_BLACK;
+            status_screen_bg_colors[r][c] = STATUS_COLOR_BACKGROUND;
+        }
+    }
+
+    status_cursor.in_screen = 0;
+    status_cursor.last_x = 0;
+    status_cursor.last_y = 0;
+    status_cursor.hover_col = -1;
+    status_cursor.hover_row = -1;
 
     return 0;
-
 }
+
+void status_destroy_screen(void) {
+    if (status_ctx.texture) SDL_DestroyTexture(status_ctx.texture);
+    if (status_ctx.renderer) SDL_DestroyRenderer(status_ctx.renderer);
+    if (status_ctx.window) SDL_DestroyWindow(status_ctx.window);
+}
+
+void status_handle_events(SDL_Event event) {
+    //SDL_Event event;
+//    char title[128];
+
+    //while (SDL_PollEvent(&event)) {
+ //       if (event.type == SDL_QUIT) *running = 0;
+//        if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE) *running = 0;
+
+        if (event.type == SDL_WINDOWEVENT && event.window.windowID == status_ctx.window_id) {
+            if (event.window.event == SDL_WINDOWEVENT_ENTER) status_cursor.in_screen = 1;
+            else if (event.window.event == SDL_WINDOWEVENT_LEAVE) status_cursor.in_screen = 0;
+        }
+
+        if (event.type == SDL_MOUSEMOTION && event.motion.windowID == status_ctx.window_id) {
+            status_cursor.last_x = event.motion.x;
+            status_cursor.last_y = event.motion.y;
+
+            int w, h;
+            SDL_GetWindowSize(status_ctx.window, &w, &h);
+            int in_active = status_window_pos_to_cell(w, h, status_cursor.last_x, status_cursor.last_y,
+                                                       &status_cursor.hover_col, &status_cursor.hover_row);
+            if (!in_active) { status_cursor.hover_col = -1; status_cursor.hover_row = -1; }
+
+//            snprintf(title, sizeof(title),
+//                     "status_screen - cursor: (%d, %d) cell: (col %d, row %d)",
+//                     status_cursor.last_x, status_cursor.last_y,
+//                     status_cursor.hover_col, status_cursor.hover_row);
+//            SDL_SetWindowTitle(status_ctx.window, title);
+
+           // printf("Cursor at (%d, %d) -> cell (col %d, row %d)\n",
+             //      status_cursor.last_x, status_cursor.last_y,
+               //    status_cursor.hover_col, status_cursor.hover_row);
+        }
+
+        // Still filtered to status_screen's window ID, even though it's
+        // the only window now -- keeps this safe if more windows are ever added.
+        if (event.type == SDL_MOUSEBUTTONDOWN && event.button.windowID == status_ctx.window_id) {
+            status_on_mouse_button_down(event.button.x, event.button.y, event.button.button);
+        }
+    //}
+}
+
+void status_draw_char_argb(uint32_t *pixels, int pitch_pixels, int col, int row,
+                            unsigned char c, uint32_t fg_color, uint32_t bg_color) {
+
+// change so we can mofify the font being used :) 
+//    uint8_t* status_font = nascom_font_raw;
+    const uint8_t *glyph = &status_font[(int)c * STATUS_FONT_BYTES_CHAR];
+    int base_x = STATUS_BORDER_LEFT + col * STATUS_CHAR_W;
+    int base_y = STATUS_BORDER_TOP + row * STATUS_CHAR_H;
+
+    for (int y = 0; y < STATUS_CHAR_H; y++) {
+        uint8_t bits = glyph[y];
+        uint32_t *row_ptr = pixels + (base_y + y) * pitch_pixels + base_x;
+        for (int x = 0; x < STATUS_CHAR_W; x++) {
+            row_ptr[x] = (bits & (0x80 >> x)) ? fg_color : bg_color;
+        }
+    }
+}
+
+void status_show_char(unsigned char ch, int col, int row, uint32_t fg_color, uint32_t bg_color) {
+    if (row < 0 || row >= STATUS_ROWS || col < 0 || col >= STATUS_COLS) return;
+    status_screen_chars[row][col] = ch;
+    status_screen_fg_colors[row][col] = fg_color;
+    status_screen_bg_colors[row][col] = bg_color;
+}
+
+void status_show_string(const char *str, int col, int row, uint32_t fg_color, uint32_t bg_color) {
+    for (int i = 0; str[i] != '\0' && (col + i) < STATUS_COLS; i++) {
+        status_show_char((unsigned char)str[i], col + i, row, fg_color, bg_color);
+    }
+}
+
+void status_show_chars(const unsigned char *chars, int count, int col, int row,
+                        const uint32_t *fg_colors, uint32_t default_fg_color, uint32_t bg_color) {
+    for (int i = 0; i < count && (col + i) < STATUS_COLS; i++) {
+        uint32_t fg = fg_colors ? fg_colors[i] : default_fg_color;
+        status_show_char(chars[i], col + i, row, fg, bg_color);
+    }
+}
+
+int status_window_pos_to_cell(int win_w, int win_h, int px, int py, int *col, int *row) {
+    float scale_x = (float)win_w / STATUS_TOTAL_W;
+    float scale_y = (float)win_h / STATUS_TOTAL_H;
+
+    float active_x = px - STATUS_BORDER_LEFT * scale_x;
+    float active_y = py - STATUS_BORDER_TOP * scale_y;
+
+    float cell_w = STATUS_CHAR_W * scale_x;
+    float cell_h = STATUS_CHAR_H * scale_y;
+
+    if (active_x < 0 || active_y < 0) return 0;
+
+    int c = (int)(active_x / cell_w);
+    int r = (int)(active_y / cell_h);
+    if (c < 0 || c >= STATUS_COLS || r < 0 || r >= STATUS_ROWS) return 0;
+
+    *col = c;
+    *row = r;
+    return 1;
+}
+
+void status_refresh_screen(void) {
+    // --- Build the native-resolution ARGB8888 frame ---
+    void *pixels;
+    int pitch;
+    SDL_LockTexture(status_ctx.texture, NULL, &pixels, &pitch);
+    int pitch_pixels = pitch / 4;
+    uint32_t *buf = (uint32_t *)pixels;
+
+    // Border color first (the margin around the active character area).
+    for (int y = 0; y < STATUS_TOTAL_H; y++) {
+        uint32_t *row_ptr = buf + y * pitch_pixels;
+        for (int x = 0; x < STATUS_TOTAL_W; x++) row_ptr[x] = STATUS_COLOR_BORDER;
+    }
+
+    // Draw every character cell: its own background fills the whole 8x16
+    // block, its own foreground draws on top wherever the glyph has a bit
+    // set. The cell currently under the cursor gets its foreground and
+    // background swapped, as a simple inverted-video highlight.
+    for (int r = 0; r < STATUS_ROWS; r++) {
+        for (int c = 0; c < STATUS_COLS; c++) {
+            uint32_t fg = status_screen_fg_colors[r][c];
+            uint32_t bg = status_screen_bg_colors[r][c];
+
+            int is_hovered = status_cursor.in_screen &&
+                              r == status_cursor.hover_row && c == status_cursor.hover_col;
+            if (is_hovered) {
+                uint32_t tmp = fg;
+                fg = bg;
+                bg = tmp;
+            }
+
+            status_draw_char_argb(buf, pitch_pixels, c, r, status_screen_chars[r][c], fg, bg);
+        }
+    }
+
+    SDL_UnlockTexture(status_ctx.texture);
+
+
+    // --- Render status_screen: stretch the native buffer to fill the
+    // window edge-to-edge (no aspect-preserving letterbox/offset). ---
+    int win_w, win_h;
+    SDL_GetWindowSize(status_ctx.window, &win_w, &win_h);
+    SDL_RenderClear(status_ctx.renderer);
+    SDL_Rect full_dst = { 0, 0, win_w, win_h };
+    SDL_RenderCopy(status_ctx.renderer, status_ctx.texture, NULL, &full_dst);
+
+
+    // Highlight the grid cell the cursor is currently over.
+    // Highlight the grid cell the cursor is currently over.
+    //
+    // IMPORTANT: each edge of the highlighted cell is computed independently
+    // in floating point and rounded only at the very end. Rounding a single
+    // shared cell_w/cell_h first and then multiplying by hover_col/hover_row
+    // (the previous approach) throws away a fraction of a pixel per cell,
+    // and that loss accumulates linearly with the column/row index and with
+    // how far the window has been stretched -- which is exactly what caused
+    // the highlight to drift left/up as the window got larger or the cursor
+    // moved further right/down.
+    if (status_cursor.in_screen && status_cursor.hover_col >= 0 && status_cursor.hover_col < STATUS_COLS &&
+        status_cursor.hover_row >= 0 && status_cursor.hover_row < STATUS_ROWS) {
+        float scale_x = (float)win_w / STATUS_TOTAL_W;
+        float scale_y = (float)win_h / STATUS_TOTAL_H;
+
+        float x0 = (STATUS_BORDER_LEFT + status_cursor.hover_col * STATUS_CHAR_W) * scale_x;
+        float x1 = (STATUS_BORDER_LEFT + (status_cursor.hover_col + 1) * STATUS_CHAR_W) * scale_x;
+        float y0 = (STATUS_BORDER_TOP + status_cursor.hover_row * STATUS_CHAR_H) * scale_y;
+        float y1 = (STATUS_BORDER_TOP + (status_cursor.hover_row + 1) * STATUS_CHAR_H) * scale_y;
+
+        int ix0 = (int)(x0 + 0.5f);
+        int iy0 = (int)(y0 + 0.5f);
+        int ix1 = (int)(x1 + 0.5f);
+        int iy1 = (int)(y1 + 0.5f);
+
+        SDL_Rect hl = { ix0, iy0, ix1 - ix0, iy1 - iy0 };
+        SDL_SetRenderDrawColor(status_ctx.renderer, 0, 0, 0, 100);
+        SDL_SetRenderDrawBlendMode(status_ctx.renderer, SDL_BLENDMODE_BLEND);
+        SDL_RenderDrawRect(status_ctx.renderer, &hl);
+    }
+    SDL_RenderPresent(status_ctx.renderer);
+}
+
+void status_on_mouse_button_down(int x, int y, Uint8 button) {
+    int w, h;
+    SDL_GetWindowSize(status_ctx.window, &w, &h);
+
+    int col, row;
+    int in_active = status_window_pos_to_cell(w, h, x, y, &col, &row);
+
+    const char *button_name =
+        (button == SDL_BUTTON_LEFT)  ? "left"  :
+        (button == SDL_BUTTON_RIGHT) ? "right" :
+        (button == SDL_BUTTON_MIDDLE)? "middle": "other";
+
+    if (in_active) {
+        printf("Mouse %s button pressed at (%d, %d) -> cell (col %d, row %d)\n",
+               button_name, x, y, col, row);
+    } else {
+        printf("Mouse %s button pressed at (%d, %d) -> on border (no cell)\n",
+               button_name, x, y);
+    }
+}
+
+void status_display_show_char_full(char ch, unsigned int col, unsigned int row, 
+          uint32_t charcolour, uint32_t bg_color){
+    if (row < 0 || row >= STATUS_ROWS || col < 0 || col >= STATUS_COLS) return;
+    status_screen_chars[row][col] = ch;
+    status_screen_fg_colors[row][col] = charcolour;
+    status_screen_bg_colors [row][col] = bg_color;
+              
+          }
+          
+/*
+ * display a string on the screen using character position value x col and y row 
+ * 
+ */
+
+void status_display_show_chars(const char *str, int col, int row) {
+    for (int i = 0; str[i] != '\0' && (col + i) < STATUS_COLS; i++) {
+        status_set_char( (unsigned char)str[i], col + i, row,  STATUS_COLOR_BLACK, STATUS_COLOR_BACKGROUND);
+    }
+}
+
+
+/*
+ * display a string on the screen using character position value x and y 
+ *   and allow setting of  colour
+ * TODO sort out background color set
+ */
+void status_display_show_chars_full(char * stringdata, unsigned int col , unsigned int row, 
+        uint32_t charcolour, uint32_t bg_color){
+                for (int i = 0; stringdata[i] != '\0' && (col + i) < STATUS_COLS; i++) {
+        status_set_char( (unsigned char)stringdata[i], col + i , row, charcolour, bg_color);
+    }
+}
+            
+void status_set_char(unsigned char ch, int col, int row,  uint32_t fg_color, uint32_t bg_color) {
+    if (row < 0 || row >= STATUS_ROWS || col < 0 || col >= STATUS_COLS) return;
+    status_screen_chars[row][col] = ch;
+    status_screen_fg_colors[row][col] = fg_color;
+    status_screen_bg_colors[row][col] = bg_color;
+}
+
 
 void status_display_change_size(int sizefactor){
 
     // since we build the display at 2x actual pixel size 
     // scaling down if actually asking for scaling of 1
-    SDL_SetWindowSize(screen, STATUS_DISPLAY_WIDTH*sizefactor*.25, STATUS_DISPLAY_HEIGHT*sizefactor*.25);
+    SDL_SetWindowSize(status_ctx.window, STATUS_TOTAL_W*sizefactor*1, STATUS_TOTAL_H*sizefactor*1);
     
 }
 
 void status_display_position(int x, int y){
 
-    SDL_SetWindowPosition(screen, x, y);
+    SDL_SetWindowPosition(status_ctx.window, x, y);
+
+}
+void status_get_display_position(int* x, int* y){
+
+    SDL_GetWindowPosition(status_ctx.window, x, y);
 
 }
 
@@ -195,246 +355,14 @@ void status_display_position(int x, int y){
 // updates the integers pointed to by w and h
 void status_GetWindowSize(int* w, int* h){
 
-    SDL_GetWindowSize(screen,w,h);
+    SDL_GetWindowSize(status_ctx.window,w,h);
+    
     if (w==NULL){
-        *w=STATUS_DISPLAY_WIDTH;
+        *w=STATUS_TOTAL_W;
     }
     if (h==NULL){
-        *h=STATUS_DISPLAY_HEIGHT;
+        *h=STATUS_TOTAL_H;
     }
 }
 
-
-
-
-// this is called when the simz80 code calls the sim_delay function
-
-void status_display_refresh(void)
-{
-
-    bool dirty = needsrefresh;
-    needsrefresh=0;
-    
-    // every x cycles force a refresh the display
-    static int countdown = STATUS_DISPLAYFORCEREFRESH;
-    if ((countdown--)<1){
-        countdown = STATUS_DISPLAYFORCEREFRESH;
-        dirty=true;
-    }
-
-//    status_display_show_chars("First line",0,0);
-//    status_display_show_chars("Second  line",0,1);
-    // char strBuffer[100];
-    // display serial input details
-
-    displaytapestatus();
-
-    //sprintf(strBuffer,"Serial in: %d %c input:%06ld  output:%06ld ",serial_input_available, " *"[tape_led] , tape_in_pos, tape_out_pos ); 
-
-    //status_display_show_chars_full(strBuffer,0,STATUS_DISPLAYLINES-1,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_BLUE,STATUS_BLACK);
-
-    //sprintf(strBuffer,"Tape pos: %d %c input:%06ld  output:%06ld ",serial_input_available, " *"[tape_led] , tape_in_pos, tape_out_pos ); 
-
-    //status_display_show_chars_full(strBuffer,0,STATUS_DISPLAYLINES-1,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_BLUE,STATUS_BLACK);
-    //status_display_show_string("Hello",10,10);
-    //status_display_show_string_full("next line",10,10+STATUS_FONT_H,2,2,STATUS_RED,STATUS_GREEN);
-    //ztatus_display_show_string_full("and next line",10,10+(STATUS_FONT_H*4),3,3,STATUS_BLUE,STATUS_BLACK);
-
-    if (dirty) {
-        SDL_Rect sr;
-        sr.x = 0;
-        sr.y = 0;
-        sr.w = STATUS_DISPLAY_WIDTH;
-        sr.h = STATUS_DISPLAY_HEIGHT;
-//ensure white background ?
-        SDL_SetRenderDrawColor(rend, 255, 255, 255, 255);
-
-        // convert pixel data into a "texture" think 4 bytes per pixel 
-        SDL_UpdateTexture(texture, NULL, pixmap, STATUS_DISPLAY_WIDTH * 4 );
-        // remove current picture
-        SDL_RenderClear(rend);
-        // create a new picture to display 
-        SDL_RenderCopy(rend, texture, NULL, &sr);
-        // display it - replace current frame with new data
-        SDL_RenderPresent(rend);
-
-        SDL_SetRenderDrawColor(rend, 255, 255, 255, 255);
-        // remove current picture
-        SDL_RenderClear(rend);
-
-    }
-}
-
-
-/*
- * check if the x y pixels are within the screen display area 
- * returns 1 if all okay
- * else 0
- * actually assumes we are printing characters 
- * so needs to be 1 less in each direction ???? TODO
- * 
- */
-int checkIfPixelsInRange(unsigned int xpixelpos, unsigned int ypixelpos){
-
-    if (xpixelpos >= STATUS_DISPLAY_WIDTH){
-        fprintf(stderr,"x pos %d out of bounds %d\n",xpixelpos,STATUS_DISPLAY_WIDTH);
-        return 0;
-    }
-    if (ypixelpos >= STATUS_DISPLAY_HEIGHT) {
-        fprintf(stderr,"y pos %d out of bounds %d\n",ypixelpos,STATUS_DISPLAY_HEIGHT);
-        return 0;
-    }
-    return 1;
-}
-
-/*
- * display a character on the status screen
- * using character position
- */
-void status_display_show_char(char onechar, unsigned int xcharpos, unsigned int ycharpos)
-{
-    char stringdata[] = {onechar, 0x00};
-    
-    status_display_show_chars_full(stringdata,xcharpos,ycharpos,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_BLACK,STATUS_BACKGROUND);
-
-}
-
-
-/*
- * display characters on the status screen
- * using character position
- */
-void status_display_show_chars(char * stringdata, unsigned int xcharpos, unsigned int ycharpos)
-{
-    
-    // character colour, background colour
-    status_display_show_chars_full(stringdata,xcharpos,ycharpos,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_BLACK,STATUS_BACKGROUND);
-
-}
-/*
- * display a string on the screen using character position value x and y 
- *   and allow setting of scale and colour
- * 
- */
-void status_display_show_chars_full(char * stringdata, unsigned int xcharpos, unsigned int ycharpos, 
-        unsigned fontxscale, unsigned fontyscale,  uint32_t charcolour, uint32_t backgroundcolour)
-{
-    int xpixelpos = STATUS_DISPLAY_X_OFFSET+(xcharpos * STATUS_FONT_W * fontxscale);
-    int ypixelpos = (STATUS_DISPLAY_Y_OFFSET)+(ycharpos*STATUS_FONT_H*fontyscale);
-    
-    //printf("character at x:%d y:%d\n",xpixelpos,ypixelpos);
-    status_display_show_string_full(stringdata,xpixelpos,ypixelpos,fontxscale,fontyscale,charcolour,backgroundcolour);
-}
-/*
- * display a string on the screen using pixel position value x and y 
- * 
- */
-
-void status_display_show_string(char * stringdata, unsigned int xpixelpos, unsigned int ypixelpos)
-{
-
-    status_display_show_string_full(stringdata,xpixelpos,ypixelpos,1,1,STATUS_BLACK,STATUS_BACKGROUND);
-}
-
-/*
- * display a string on the screen using pixel value x and y 
- *   and allow setting of scale and colour
- * 
- */
-void status_display_show_string_full(char * stringdata, unsigned int xpixelpos, unsigned int ypixelpos, 
-        unsigned fontxscale, unsigned fontyscale,  uint32_t charcolour, uint32_t backgroundcolour)
-{
-
-    unsigned int xpos=xpixelpos;
-    unsigned int ypos=ypixelpos;
-    
-    needsrefresh=1;
-    if (checkIfPixelsInRange(xpos,ypos)==0){
-        return;
-    }
-/*
-    if (xpos >= STATUS_DISPLAY_WIDTH){
-        fprintf(stderr,"x pos %d out of bounds %d\n",xpos,STATUS_DISPLAY_WIDTH);
-        return;
-    }
-    if (ypos >= STATUS_DISPLAY_HEIGHT) {
-        fprintf(stderr,"y pos %d out of bounds %d\n",ypos,STATUS_DISPLAY_HEIGHT);
-        return;
-    }
- */   
-    // Where in the pixel map to store the first character on the screen
-    int characterpos = 0;
-    while (stringdata[characterpos]!=0){
-
-        // current character in screen ram
-        BYTE screenByte = (stringdata[characterpos]);
-        
-        // get where to start in the pixmap
-        // the first byte is to be diaplayed here 
-        uint32_t *pixmapAddress = pixmap + (ypos * STATUS_DISPLAY_WIDTH ) + xpos;
-        
-        // get the address of the first line of the font 
-        uint8_t *fontAddress = map80VFCcharRom1 + (STATUS_BYTESPERCHARACTER * screenByte);
-
-        // now process the lines of the font
-        for (int y = 0; y < STATUS_FONT_H; y++) {
-            // doing 1 row of the characters pixels
-            uint8_t fontLine = *fontAddress;
-
-            // check if we need to do more than 1 line per font line i.e. if scaling
-            for (int scaleyetc = 0 ; scaleyetc < fontyscale ; scaleyetc++ ){
-                // now do one line of 8 pixels
-                for (int x = STATUS_FONT_W - 1; x >= 0; x--){
-                    // doing a pixel
-                    // check if we need to do more than 1 pixel - i.e. if scaling
-                    for (int scalexetc = 0 ; scalexetc < fontxscale ; scalexetc++ ){
-                        //printf("pixel x %2.2X y %2.2X \n",x,y);
-                        *pixmapAddress++ = (fontLine & (1 << x)) ? charcolour : backgroundcolour;
-                    }
-                }
-                pixmapAddress += STATUS_DISPLAY_WIDTH - (STATUS_FONT_W*fontxscale); // minus 8 as just done 8 bits * scaling !
-            }
-            fontAddress++;
-        }
-        characterpos++;
-        xpos+=STATUS_FONT_W * fontxscale;
-    
-    }
-}
-
-
-void status_display_show_char_full(char onechar, unsigned int xcharpos, unsigned int ycharpos, 
-        unsigned fontxscale, unsigned fontyscale,  uint32_t charcolour, uint32_t backgroundcolour)
-{
-
-    int xpixelpos = (STATUS_DISPLAY_X_OFFSET)+(xcharpos*STATUS_FONT_W*fontxscale);
-    int ypixelpos = (STATUS_DISPLAY_Y_OFFSET)+(ycharpos*STATUS_FONT_H*fontyscale);
-
-    char stringdata[]={ onechar, 0x0 };
-    
-    status_display_show_string_full(stringdata, xpixelpos, ypixelpos, 
-        fontxscale, fontyscale,  charcolour, backgroundcolour);
-}
-
-void status_clearPixels(){
-
-// makes it all white    
-//    memset(pixmap, 255, STATUS_DISPLAY_HEIGHT * STATUS_DISPLAY_WIDTH * sizeof(uint32_t));
-
-    
-
-    for ( int xpixel = 0 ; xpixel<(STATUS_DISPLAY_HEIGHT * STATUS_DISPLAY_WIDTH) ; xpixel++) {
-        
-        pixmap[xpixel] = STATUS_BACKGROUND;
-        
-//        if (xpixel > 1450){
-//            printf("so far :)");
-//            break;
- //       }
-        
-    }
-
-}
-
-// end of file
-
+// end of code

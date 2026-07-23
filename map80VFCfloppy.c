@@ -149,7 +149,7 @@ static void displayfloppystatus(void){
             drivestatus=0xB8;
         }
         strBuffer[0]=drivestatus;
-        status_display_show_chars_full(strBuffer,2,(driveno*2)+1,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_RED,STATUS_BACKGROUND);
+        status_display_show_chars_full(strBuffer,2,(driveno*2)+1,STATUS_COLOR_RED,STATUS_COLOR_BACKGROUND);
         
     }
    
@@ -161,7 +161,7 @@ static void displayfloppyposition(){
     
     if ((floppyActiveDrive>-1) && (floppyActiveDrive<4)){
         sprintf(strBuffer,"Track %2d Head %d Sector %2d      ",floppyDrives[floppyActiveDrive].track,floppySide,floppyReadSector()); 
-        status_display_show_chars_full(strBuffer,5,(floppyActiveDrive*2)+2,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_YELLOW,STATUS_BACKGROUND);
+        status_display_show_chars_full(strBuffer,5,(floppyActiveDrive*2)+2,STATUS_COLOR_YELLOW,STATUS_COLOR_BACKGROUND);
         //printf("Floppy %d %s\n",floppyActiveDrive,strBuffer);
     }
    
@@ -176,7 +176,7 @@ void displayfloppydetails(){
     char drivestatus=0;
     char filename[100];
     int linenumber=1;
-    status_display_show_chars_full("Drives",0,0,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_BLACK,STATUS_BACKGROUND);
+    status_display_show_chars_full("Drives",0,0,STATUS_COLOR_BLACK,STATUS_COLOR_BACKGROUND);
     for (int driveno=0;driveno<4;driveno++){
         if (floppyDrives[driveno].fileNamePointer == NULL ){
             drivestatus=0xB8;
@@ -201,11 +201,11 @@ void displayfloppydetails(){
         strBuffer[0]=driveno+0x30;
         strBuffer[1]=' ';
         strBuffer[2]=0;
-        status_display_show_chars_full(strBuffer,0,linenumber,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_ORANGE,STATUS_BACKGROUND);
+        status_display_show_chars_full(strBuffer,0,linenumber,STATUS_COLOR_ORANGE,STATUS_COLOR_BACKGROUND);
         strBuffer[0]=drivestatus;
-        status_display_show_chars_full(strBuffer,2,linenumber,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_RED,STATUS_BACKGROUND);
+        status_display_show_chars_full(strBuffer,2,linenumber,STATUS_COLOR_RED,STATUS_COLOR_BACKGROUND);
         // sprintf(strBuffer,"%d "%c %s ", driveno, drivestatus, filename ); 
-        status_display_show_chars_full(filename,4,linenumber,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_YELLOW,STATUS_BACKGROUND);
+        status_display_show_chars_full(filename,4,linenumber,STATUS_COLOR_BLACK,STATUS_COLOR_BACKGROUND);
         linenumber+=2;
         
     }

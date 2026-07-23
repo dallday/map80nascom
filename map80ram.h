@@ -30,6 +30,5 @@ extern BYTE statusdisplayram[];
 extern int rampagedebug;    // set to 1 to display rampage details
 
 
-
 // end of file
 

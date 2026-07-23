@@ -388,7 +388,7 @@ void map80vfc_display_refresh(void)
                             // check if we need to do more than 1 pixel - i.e. if scaling
                             for (int scalexetc = 0 ; scalexetc < MAP80VFCDISPLAYSCALEX ; scalexetc++ ){
                                 //printf("pixel x %2.2X y %2.2X \n",x,y);
-                                *pixmapAddress++ = (fontLine & (1 << x)) ? STATUS_GREEN : 0;
+                                *pixmapAddress++ = (fontLine & (1 << x)) ? STATUS_COLOR_GREEN : 0;
                             }
                         }
                         pixmapAddress += MAP80VFCDISPLAY_DISPLAY_WIDTH - (MAP80VFCDISPLAY_FONT_W*MAP80VFCDISPLAYSCALEX); 

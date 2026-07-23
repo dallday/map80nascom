@@ -1,7 +1,7 @@
 #ifndef MAP80NASCOM_H
 #define MAP80NASCOM_H 1
 
-#define VERSION "9.2"
+#define VERSION "9.2.2"
 #define YAZEVERSION "1.10"
 
 // #define INSCREEN(x) (((x) >> 10) == 2)
@@ -28,6 +28,9 @@ extern void setPortProtect(unsigned char value);
 // DA N4 put all the reset stuff in one routine
 extern void resetEmulator(int resetType);
 
+extern void displaytapestatus(void);
+
+
 
 
 extern int verbose;      // set to value to display messages if > 1
@@ -44,8 +47,8 @@ extern int tracestartaddress;    // trace will only show results when the PC is 
 extern int traceendaddress;      //  end address of the trace range ( 0 to 0xFFFF )
 
 // 
-extern int JumpOnResetaddress;
-extern int JumpOnResetaddressfixed; // this one is JumpOnResetaddress>>RAMPAGESHIFTBITS
+//extern int JumpOnResetaddress;
+//extern int JumpOnResetaddressfixed; // this one is JumpOnResetaddress>>RAMPAGESHIFTBITS
 // and reset to 0 at end of first instruction
 
 

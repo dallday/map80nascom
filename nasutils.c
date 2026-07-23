@@ -10,6 +10,7 @@
 #include "nasutils.h"
 #include "simz80.h"
 #include "map80nascom.h"
+#include "map80ram.h"
 #include "utilities.h"
 
 // Expect a line of text from a NAS file. It should start with 1, 4-digit hex address and either
@@ -115,7 +116,10 @@ int loadNASformat(const char *filetoload)
     fileext[count2]=0; // mark end
 
     // split it out to make it easier to read the code :)
+    // this loads into the first 64k block of the MAP80 card memory
     retval=loadNASformatinternal(filetoload,&firstaddress,&lastaddress );
+    // need to move from there if type ROM or loading into the area < 0x1000 
+    
     
     // printf("loaded %s from %4.4X to %4.4X \n",filetoload,firstaddress,lastaddress);
     // allocate ROM type ( was .nal file ) their own space when loading.
@@ -123,10 +127,11 @@ int loadNASformat(const char *filetoload)
     // and it would appear in non locked areas.
     if (retval==0){
         if (verbose) printf("\tLoaded %s into memory at address 0x%4.4X\n",filetoload,firstaddress);
+        int memoryused = lastaddress-firstaddress + 1;
+        
         // check if it was a .rom type file
         if ( strcmp( fileext,"rom") == 0 ){
             // allocate some extra memory for it 
-            int memoryused = lastaddress-firstaddress + 1;
             if (verbose) printf("\tmemory used 0x%4.4X\n",memoryused);
             // check that fist address is on a 2k boundary to calculate rampages to set
             // also if > 0x1000
@@ -194,7 +199,31 @@ int loadNASformat(const char *filetoload)
                     if (verbose) printf("\tLoaded into ROM at address 0x%4.4X for 0x%2.2X bytes\n",firstaddress,memoryused);
                 }
             }
+        } else {
+            // check if it was a load into Nascom working memory or screen
+            // NascomMonVWram contains 2k monitor 1k screen and 1k workspace
+            if ((firstaddress < 0x1000 ) && (firstaddress>=0x800)){
+                if (memoryused>0x800){
+                    printf("\t %s does not fit into Nascom working ram \n",filetoload);
+                } else {
+                    // copy it into nascom memory 
+                    int nascomaddress=firstaddress; // where in the NascomMonVWram we are putting this
+                    
+                    int copycount=0;
+                    for (copycount=0;copycount<memoryused;copycount++){
+
+                        // copy from the address of the ramdefaultpagetable to nascom working memory 
+                        NascomMonVWram[nascomaddress+copycount]=GetBYTEdefault(firstaddress+copycount);
+                    }
+                    copycount--;    // backup 1
+                    // printf("Last mem copied add %4.4X count %4.4X value %2.2X \n",firstaddress+copycount,copycount,newmemory[copycount]);
+                    // now point at it from rampagetable
+                    // which entry do we need to use
+                    if (verbose) printf("\tLoaded into Nascom memory at address 0x%4.4X for 0x%2.2X bytes\n",firstaddress,memoryused);
+               }
+            }
         }
+
     }
     else {
         if (verbose) printf("\tWarning - problem loading %s\n",filetoload);
@@ -245,6 +274,9 @@ int loadNASformatinternal(const char *filetoload, int *firstaddressused, int *la
             // this one will put it into underlying memory if rom are used
             // PutBYTE(address,bytes[i]);
             // decided needed a way of getting the default address from the ramdefaultpagetable
+            // problem is if loading into c80 then will not appear in Nascom work area :(
+            // maybe copy ??? see calling routine
+            // TODO not sure about the PutBYTEdefault as the nascopm etc,m not loaded until later 
             PutBYTEdefault(address,bytes[i]);
             if (lastaddress<address){
                 lastaddress=address;

@@ -1,6 +1,6 @@
 /*
  * 
- *  map80nascom version 9
+ *  map80nascom version 9.2.2
  * 
          Copyright (c) David Allday 2021-2026
          Uses code base from Virtual Vascom 
@@ -72,9 +72,12 @@
  * 
  *  emulated a lot of the Nascom 4 hardware 
  * 
- *  emulates the PIO on the mascom
- *     the output lines go nowhere at present 
- *     the interrupt and control lines have not been implimented
+ *  emulates the PIO on the mascom ( shows details on the status window )
+ *     the output lines can be read or written to using telnet on port 5555 (default)
+ *     the control lines should work 
+ *     the maskable interrupt works for int mode 2 ( but is quite simple )
+ *  
+ *  Halt - instruction does just halt the cpu and puts a red HALT in th status window
  *  
  * 
  * Note I used codelite to build this 
@@ -95,6 +98,7 @@
 #include <SDL2/SDL.h>
 #include <unistd.h>
 #include <stdio.h>
+#include <signal.h>
 
 #include "options.h"  //defines the options to usemap80RamIntialise
 #include "simz80.h"
@@ -113,11 +117,19 @@
 #include "serial.h"
 #include "utilities.h"
 #include "pio.h"
+#include "tcpcomms.h"
+
 
 /*
  *  global variables
  *
  */
+
+// stuff for the communcation to set PIO 
+int tcpcomms_port=DEFAULT_PORT;
+int tcpcomms_lfd;
+
+
 
 // set to 1 to see the VFC display / rom debug info
 int vfcdisplaydebug=0; 
@@ -165,6 +177,8 @@ int af_sel;                     /* bank select for af */
 struct ddregs regs[2];          /* bc,de,hl */
 int regs_sel;                   /* bank select for ddregs */
 
+int interruptMode=0;            /* set to the maskable interrupt mode */
+
 WORD ir;                        /* other Z80 registers */
 WORD ix;
 WORD iy;
@@ -200,9 +214,14 @@ int calldisableSBROM=0; // used to count down to the disable of SBROM
 
 // used to set the "jump on reset" links on the nascom 2
 // DA N4 used to start SBROM on the N4
-int JumpOnResetaddress=0;
-int JumpOnResetaddressfixed=0; // this one is JumpOnResetaddress>>RAMPAGESHIFTBITS
+WORD JumpOnResetaddress=0;
+WORD JumpOnResetaddressfixed=0; // this one is JumpOnResetaddress>>RAMPAGESHIFTBITS
 
+// to allow for a delay in activating IFF1
+// set to 3 when a maskable interrupt is requested
+// it will countdown each cycle and when it gets to 1 will set IFF1 ( IFF2 will be set by EI )
+// TODO check RETN 
+int delayMaskableInterrupt=0;
 
 /*
  *
@@ -226,8 +245,31 @@ int sim_delay(void)
 {
     sim_action_t localaction = CONT;
 
+    // see if there are any messages 
+    tcpcomms_poll(tcpcomms_lfd);
+
+    // print used when checking the HALT instruction
+    // the PC value is local to the simz80 
+    // at various points it saves PC to global variable pc
+    // made sure this happened when the HALT instrution happened
+    // the PC is moved back 1 so the HALT keeps on being exectued
+    // not sure if that is correct as it should escape the HALT if an interrupt occurs 
+    // 
+    //printf("checking address %4.4X value %4.4X (hex) \n",pc,RAM(pc));
+
+    if (RAM(pc) == 0x76){ //halt instruction
+             status_display_show_chars_full("HALT",15,18,STATUS_COLOR_RED,STATUS_COLOR_BACKGROUND);
+    }
+    else {
+        status_display_show_chars("    ",15,18);
+    }
+        
+    
+
+    displaytapestatus();
     // update the status display
-    status_display_refresh();
+    //status_display_refresh();
+    status_refresh_screen();
     // refresh both screens
     // update the nascom display
     nascom_display_refresh();
@@ -421,7 +463,7 @@ int main(int argc, char **argv){
                     if (optarg[cpos] == '-') {
                         printf ("Think you forgot the value for -d ? \n");
                     }else {
-                        printf("-d option value %s not recognised\n",optarg);
+                        printf("-d option value %c not recognised\n",optarg[cpos]);
                     }
                     break;
                 }
@@ -516,6 +558,9 @@ int main(int argc, char **argv){
     // sets the rampagetable entries to the first 64k of the ram space
     map80RamInitialise();
 
+    // total reset of the PIO -just in case :)
+    PIOtotalreset();   
+
 
     //   printf("NascomMonVWram address %p \n",&NascomMonVWram);
     //   printf("NascomMonVWram screen address %p \n",&NascomMonVWram[0x800]);
@@ -530,31 +575,30 @@ int main(int argc, char **argv){
         map80vfcdisplayxpos=MAP80VFC_DISPLAY_XPOS;
         map80vfcdisplayypos=MAP80VFC_DISPLAY_YPOS;
        
-// status screen position
-//        statusdisplayxpos=nascomdisplayxpos+NASCOM_DISPLAY_WIDTH+10;
-//        statusdisplayypos=STATUS_DISPLAY_YPOS;OEF
 
-//        statusdisplayxpos=map80vfcdisplayxpos+MAP80VFCDISPLAY_DISPLAY_WIDTH+10;
-//        statusdisplayypos=STATUS_DISPLAY_YPOS;
-
-        statusdisplayxpos=STATUS_DISPLAY_XPOS;
-        statusdisplayypos=STATUS_DISPLAY_YPOS;
-
-
-    // setup the status screen
-    if (status_create_screen( (&statusdisplayram[0]) )){
+    // setup the status screen - space allocated automatically
+    if (status_create_screen(2) ){
         return 1;
     }
     // scale it to match others 
-    status_display_change_size(scaledisplays);
-    status_display_position(statusdisplayxpos, statusdisplayypos) ;
+// TODO sort thsi out
+    //    status_display_position(statusdisplayxpos, statusdisplayypos) ;
 
     int status_display_width=0;
     int status_display_height=0;
+    
     int currentwidth=0;
     int currentheight=0;
-    // get status disaply size so we can adjust the others
+
+    int statusdisplayxpos=STATUS_DISPLAY_XPOS;
+    int statusdisplayypos=STATUS_DISPLAY_YPOS;
+
+    // get status display size so we can adjust the others
+    status_display_change_size(scaledisplays);
+    status_get_display_position(&statusdisplayxpos,&statusdisplayypos);
     status_GetWindowSize(&status_display_width,&status_display_height);
+    
+//    SDL_GetWindowSize(status_ctx.window, &status_display_width, &status_display_height);
 
         // create nascom screen in it's own ram
         // screen is in the nascom ram space
@@ -563,6 +607,7 @@ int main(int argc, char **argv){
         }
         nascom_display_change_size(scaledisplays);
         nascomdisplayypos=statusdisplayypos+status_display_height+NASCOM_DISPLAY_YPOS+30;
+        nascomdisplayypos=statusdisplayypos+status_display_height+100;
         nascom_display_position(nascomdisplayxpos,nascomdisplayypos);
         nascom_GetWindowSize(&currentwidth,&currentheight);
         if (verbose){
@@ -646,6 +691,7 @@ int main(int argc, char **argv){
     displayfloppydetails();
 
 
+
 // N4 changes - need to enable Nascom Rom via port control
 
     // clear the first command if we want to use the bios monitor.
@@ -687,6 +733,15 @@ int main(int argc, char **argv){
 */
     // display the outline for the pio status
     displayPIOoutline();
+
+// setup TCP Ports
+
+   // signal(SIGINT, on_sigint);
+
+    tcpcomms_lfd = tcpcomms_setup(tcpcomms_port);
+    if (tcpcomms_lfd < 0){
+        printf("Failure to setup tcp server");
+    }
     
     
     MAP80nascomMonitor(firstcommand);
@@ -696,6 +751,7 @@ int main(int argc, char **argv){
         // save the nascom space to file
         save_nascom(0x800, 0x10000, "nasmemorydump.nas");
     }
+    tcpcomms_close(tcpcomms_lfd);
     exit(0);
 }
 
@@ -1357,7 +1413,9 @@ void resetEmulator(int resetType){
     // first reset all memory pages 
     resetMemoryPages();
     // sort of equivalent of  out(0xFE,0); // reset paging on MAP80RAM card
-
+    // reset PIO state
+    PIOreset();
+    
     // if emulating the N4 then need to do this 
     if (emulator_mode=='4'){
         JumpOnResetaddress=0x1000;  // set for SBROM 
@@ -1398,6 +1456,63 @@ void resetEmulator(int resetType){
 
 }    
 
+void displaytapestatus(void){
+
+    char nofile[]="no file";
+    // use this to display if data avialable or not 
+    // reposition the pointer at i if data available 
+    char nodata[]="no input data available   ";
+    char * displaynodata=nodata;
+    // buffer to build strings into 
+    // da apr 2026 increased size to avoid overflow
+    char strBuffer[150];
+    // build filename string into 
+    char strserialname[100];
+
+    if (serial_input_filename==NULL){
+        copystringtobuffer(strserialname,nofile,20);
+        //strserialname[0]=0;
+    }
+    else{
+        copystringtobuffer(strserialname,serial_input_filename,20);
+        // sprintf(strBuffer,"Serial in: %s %c position:%06ld ",strserialname, " *"[tape_led & 0x1] , tape_in_pos ); 
+    }
+    sprintf(strBuffer,"Serial in  %06ld file: %s", tape_in_pos, strserialname ); 
+
+    status_display_show_chars_full(strBuffer,0,STATUS_ROWS-2,STATUS_COLOR_LIGHTBLUE,STATUS_COLOR_BACKGROUND);
+
+    if (serial_output_filename==NULL){
+        copystringtobuffer(strserialname,nofile,20);
+        //strserialname[0]=0;
+    }
+    else{
+        copystringtobuffer(strserialname,serial_output_filename,20);
+        // sprintf(strBuffer,"Serial in: %s %c position:%06ld ",strserialname, " *"[tape_led & 0x1] , tape_in_pos ); 
+    }
+
+    sprintf(strBuffer,"Serial out %06ld file: %s", tape_out_pos, strserialname ); 
+
+    status_display_show_chars_full(strBuffer,0,STATUS_ROWS-1,STATUS_COLOR_LIGHTBLUE,STATUS_COLOR_BACKGROUND);
+    
+    
+    sprintf(strBuffer,"Tape LED "); 
+        
+    status_display_show_chars_full(strBuffer,0,STATUS_ROWS-3,STATUS_COLOR_LIGHTBLUE,STATUS_COLOR_BACKGROUND);
+
+    sprintf(strBuffer,"%c","\xB8\xB9"[tape_led & 0x1]); 
+        
+    status_display_show_chars_full(strBuffer,10,STATUS_ROWS-3,STATUS_COLOR_RED,STATUS_COLOR_BACKGROUND);
+    
+    if (serial_input_available){
+        displaynodata+=3;
+    }
+    
+    sprintf(strBuffer,"%s",displaynodata); 
+        
+    status_display_show_chars_full(strBuffer,15,STATUS_ROWS-3,STATUS_COLOR_LIGHTBLUE,STATUS_COLOR_BACKGROUND);
+    //status_display_show_chars_full("SS",10,STATUS_DISPLAYLINES,STATUS_RED,STATUS_BLACK);
+
+}
 
 
 // end of code

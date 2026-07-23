@@ -20,6 +20,7 @@
 #include "map80ram.h"
 #include "sdlevents.h"
 #include "serial.h"
+#include "statusdisplay.h"
 
 // set values done in map80nascom.c
 //int showkeymatrix=SHOWKEYMATRIX;
@@ -72,8 +73,24 @@ void ui_serve_input(void)
               event.motion.x, event.motion.y);*/
             break;
         case SDL_MOUSEBUTTONDOWN:
-            /*printf("Mouse button %d pressed at (%d,%d)\n",
-              event.button.button, event.button.x, event.button.y);*/
+            if (event.motion.windowID==status_ctx.window_id){
+                printf("Mouse button %d pressed at (%d,%d)\n",
+                 event.button.button, event.button.x, event.button.y);
+              /*  
+                switch (event.button.button)
+                {
+                case SDL_BUTTON_LEFT:
+                    printf("Left button was pressed!");
+                    break;
+                case SDL_BUTTON_RIGHT:
+                    printf("Right button was pressed!");
+                    break;
+                default:
+                    printf("Some other button was pressed!");
+                    break;
+                }
+                 */
+            }
             break;
         case SDL_KEYDOWN:
         case SDL_KEYUP:
@@ -98,6 +115,8 @@ void ui_serve_input(void)
 //            printf("Unknown event: %d\n", event.type);
             break;
         }
+    // let status display handle it own events
+    status_handle_events(event);
     }
 }
 

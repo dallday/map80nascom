@@ -251,7 +251,7 @@ static void RenderItem(int idx, int xp, int yp)
                 for (int scalexetc = 0 ; scalexetc < NASCOM_DISPLAYSCALEX ; scalexetc++ ){
                     // not sure why lots of Fs but
                     // it's a colour  0xFFFF0000 is red
-                    *r++ = (c & (1 << x)) ? STATUS_GREEN : 0;
+                    *r++ = (c & (1 << x)) ? STATUS_COLOR_GREEN : 0;
                 }
             }
             // next line we have moved on 8 bytes on the display depending upon the scale

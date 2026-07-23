@@ -81,7 +81,15 @@ extern WORD ix;
 extern WORD iy;
 extern WORD sp;
 extern WORD pc;
-extern WORD IFF;
+extern WORD IFF; // the impliments IFF1 (bit 0 )  and IFF2 (bit 1)
+
+extern int interruptMode;
+
+// set to 3 when a maskable interrupt is requested
+// it will countdown each cycle and when it gets to 1 will set IFF1 ( IFF2 will be set by EI )
+// TODO check RETN 
+extern int delayMaskableInterrupt;
+
 
 // fix DA see options.h for these definitions
 // this defines how much memory the Z80 can see in K
@@ -156,16 +164,20 @@ extern FASTWORK simz80(FASTREG PC, int, int (*)(),int numberInstructions);
 
 
 //DA N4 -seems the declare external had to be here as need to define WORD ??
-extern int JumpOnResetaddressfixed; 
-extern int JumpOnResetaddress;
-
+extern WORD JumpOnResetaddressfixed; 
+extern WORD JumpOnResetaddress;
 // DA N4 - used to decide if SBROM can be disabled 
+// see ram.c for real definition - need to declare them here :) DA N4
+// and reset to 0 at end of first instruction
+
 extern int calldisableSBROM;
 extern int callenableSBROM;
 
 extern char emulator_mode;
-// see ram.c for real definition - need to declare them here :) DA N4
-// and reset to 0 at end of first instruction
+
+
+
+
 
 // #define RAM(a)		*(rampagetable[((a)>>RAMPAGESHIFTBITS) & RAMPAGETABLESIZEMASK] + ((a) & RAMPAGEMASK) )
 // DA N4 update macro to include a JumponReset control
@@ -256,6 +268,10 @@ void PutBYTE(uint16_t a, uint16_t v)
 
 /* 
  * to allow me to actually write to the "default" paged memory
+ * TODO not so sure this is needed 
+ * used during load into memory of nas files 
+ * and at that point they should all be at default unless a .rom has already been loaded :(
+ * 
  */
 
 static inline 

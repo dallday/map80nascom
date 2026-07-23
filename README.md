@@ -180,6 +180,42 @@ you will need to unzip the image into the rom folder.
 
 See Neal Crook's guide at https://github.com/nealcrook/nascom/tree/master/nascom4  
 
+PIO operation
+-------------
+
+The code emulates the PIO in the Nascom system  
+It is on   
+* Port 4 Port A data  
+* Port 5 Port B data  
+* Port 6 Port A control  
+* Port 7 Port B control  
+
+It can handle Input, Output or Control modes. Bidirectional is not yet supported.  
+
+It will generate a maskable interrupt at the correct time.  
+although the coding lacks some of the complexity of the real thing. :)  
+
+See my test program testPIOInt 
+
+The access the PIO output you can telnet to port 5555 ( e.g telnet 127.0.0.1 5555)  
+
+The interface is quite simple ( ie only supports specific commands)  
+
+e.g. for Port A  
+* RA - will read the ready line on Port A - returns 00 or 01   
+* QA - will read the output value of port A   
+*    Note - this will reset the ready line on Port A.  
+* WA XX - will write the value XX in hex to Port A.  
+*    Note this only works if it is in Input or Control mode.  
+*    Note - this will reset the ready line on Port A.   
+
+RB QB and WB work for Port B
+the response to the commands is the return the value in the Port Register
+
+There is an unsolicited send, to all clients, of  
+* RA or RB when the PIO RDY line goes to 1.
+* CA XX or CB XX when one of the data lines is changed by the cpu in control mode.
+
 
 
 Serial Input and Output:

@@ -84,11 +84,10 @@ int ramromtable[RAMPAGETABLESIZE];
 // this would mean that the "rom" could appear in an area that should be ram 
 int ramlocktable[RAMPAGETABLESIZE];
 
-// next 2 areas only referenced in virutal-nascom code
+// next area only referenced in virutal-nascom code
 // defines some space for NASCOM Monitor ROM, video ram and working Ram
-// DA N4 - added SBROM to the end of NascomMonVWram so +1000
-// changed mind again 
-BYTE NascomMonVWram[5*1024];
+// NascomMonVWram contains 2k monitor 1k screen and 1k workspace
+BYTE NascomMonVWram[4*1024];
 
 // DA N4
 // area for the SBROM for N4
@@ -100,7 +99,9 @@ BYTE SBROM[1*1024];
 BYTE dummyram[RAMPAGESIZE*1024];
 
 // the status screen 
-BYTE statusdisplayram[STATUS_DISPLAYRAMSIZE];
+//BYTE statusdisplayram[STATUS_DISPLAYRAMSIZE];
+// now in statusdisplay 
+
 // space for the VFC rom and screen memory
 BYTE vfcrom[2*1024];
 // allowed 2k for display ram 
@@ -149,6 +150,7 @@ void map80RamInitialise(){
     NascomMonVWram[0x0c16]=0;
     NascomMonVWram[0x0c23]=0; // nas-sys
     NascomMonVWram[0x0c24]=0;
+    
 
     if (rampagedebug){
         printf("size of virtual ram %ld \n", sizeof virutalram);
@@ -351,6 +353,7 @@ void resetMemoryPages(){
     
     
 }
+
 
 
 
