@@ -1,0 +1,100 @@
+# File testPIOint2.asm
+0000			; Test the interrupt using Port B in mode 3 
+0000			; 
+0000			; Mode control	11001111	CFH	D7D6=11 selects Mode 3; D1D0=11 identifies mode word 
+0000			; I/O select mask	00010001	11H	1 = input. Bits 0 and 4 = input, rest = output 
+0000			; Interrupt vector	00000000	00H	D0=0 required; low byte of IM2 pointer 
+0000			; Interrupt control	11110111	F7H	D7=enable, D6=AND, D5=active-High, D4=mask follows 
+0000			; Interrupt mask	11101110	EEH	0 = monitor this bit. Bits 0 & 4 = 0 (monitored), rest = 1 (ignored) 
+0000			; 
+0000			; interrupt vectore table is at 0x1000 
+0000			; it uses the first address for the interrupt call 
+0000			; 
+0000			; David Allday July 2026 
+0000			 
+0000			; With AND + active-High, the PIO only fires the interrupt once both bit 0 and bit 4 of Port B are simultaneously high. 
+0000			; 
+0000			; 
+0000			; --------------------------------------------------------- 
+0000			; I/O port equates 
+0000			; --------------------------------------------------------- 
+0000			PIOA_DATA:   EQU 04H 
+0000			PIOB_DATA:   EQU 05H 
+0000			PIOA_CTRL:   EQU 06H 
+0000			PIOB_CTRL:   EQU 07H 
+0000			 
+0000			; --------------------------------------------------------- 
+0000			; IM2 vector table page/byte 
+0000			; --------------------------------------------------------- 
+0000			VTAB_HI:     EQU 10H          ; I register = 10H -> table lives at 1000H 
+0000			VTAB_LO:     EQU 00H          ; vector byte given to PIO (D0 must = 0) 
+0000			VTAB_ADDR:   EQU 1000H        ; address of the pointer table entry 
+0000			 
+0000			; --------------------------------------------------------- 
+0000			; Main program 
+0000			; --------------------------------------------------------- 
+0000			            ORG 0C80H 
+0c80 f3			START:      DI 
+0c81			 
+0c81			            ; Build the IM2 pointer table entry in code 
+0c81 21 a6 0c		            LD   HL, ISR 
+0c84 22 00 10		            LD   (VTAB_ADDR), HL 
+0c87			 
+0c87			            ; CPU -> Interrupt Mode 2, I = vector table page 
+0c87 3e 10		            LD   A, VTAB_HI 
+0c89 ed 47		            LD   I, A 
+0c8b ed 5e		            IM   2 
+0c8d			 
+0c8d			            ; Port B Mode Control Word: Mode 3 (bit/control mode) 
+0c8d 3e cf		            LD   A, 11001111B     ; CFH - D7D6=11 mode3, D1D0=11 mode word ID 
+0c8f d3 07		            OUT  (PIOB_CTRL), A 
+0c91			 
+0c91			            ; I/O select mask: 1=input, 0=output. Bits 0 and 4 = input 
+0c91 3e 11		            LD   A, 00010001B     ; 11H 
+0c93 d3 07		            OUT  (PIOB_CTRL), A 
+0c95			 
+0c95			            ; Interrupt vector byte (D0 must = 0) 
+0c95 3e 00		            LD   A, VTAB_LO 
+0c97 d3 07		            OUT  (PIOB_CTRL), A 
+0c99			 
+0c99			            ; Interrupt control word: enable, AND, active-High, mask follows 
+0c99 3e f7		            LD   A, 11110111B     ; FEH 
+0c9b d3 07		            OUT  (PIOB_CTRL), A 
+0c9d			 
+0c9d			            ; Interrupt mask word: 0=monitor this bit. Bits 0,4 monitored 
+0c9d 3e ee		            LD   A, 11101110B     ; EEH 
+0c9f d3 07		            OUT  (PIOB_CTRL), A 
+0ca1			 
+0ca1 fb			            EI 
+0ca2 76			MAIN:       HALT 
+0ca3 c3 a2 0c		            JP   MAIN 
+0ca6			 
+0ca6			; --------------------------------------------------------- 
+0ca6			; Interrupt Service Routine (follows main code) 
+0ca6			; --------------------------------------------------------- 
+0ca6 f5			ISR:        PUSH AF 
+0ca7 c5			            PUSH BC 
+0ca8 d5			            PUSH DE 
+0ca9 e5			            PUSH HL 
+0caa			 
+0caa db 05		            IN   A, (PIOB_DATA)   ; read Port B (bits 0 & 4 both high) 
+0cac 5f			            LD   E, A 
+0cad			 
+0cad ef			            RST  28H 
+0cae .. 00		            DB   'PIO INT - BITS 0&4 HIGH - PORT B = ',0 
+0cd2			 
+0cd2 7b			            LD   A, E 
+0cd3 df			            RST  18H 
+0cd4 68			            DB   068H            ; B2HEX 
+0cd5			 
+0cd5 df			            RST  18H 
+0cd6 6a			            DB   06AH            ; CRLF 
+0cd7			 
+0cd7 e1			            POP  HL 
+0cd8 d1			            POP  DE 
+0cd9 c1			            POP  BC 
+0cda f1			            POP  AF 
+0cdb fb			            EI 
+0cdc ed 4d		            RETI 
+# End of file testPIOint2.asm
+0cde
