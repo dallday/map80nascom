@@ -1,7 +1,7 @@
 #ifndef MAP80NASCOM_H
 #define MAP80NASCOM_H 1
 
-#define VERSION "9.2.2"
+#define VERSION "9.2.3"
 #define YAZEVERSION "1.10"
 
 // #define INSCREEN(x) (((x) >> 10) == 2)
@@ -45,6 +45,9 @@ extern int traceon;     // set to 1 to trace z80
 
 extern int tracestartaddress;    // trace will only show results when the PC is within this range
 extern int traceendaddress;      //  end address of the trace range ( 0 to 0xFFFF )
+
+extern int PIOdebug; // set to 1 to show PIO debug info
+
 
 // 
 //extern int JumpOnResetaddress;

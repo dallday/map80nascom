@@ -6,6 +6,7 @@ MAP 80 Nascom Version 9 June 2026
 This emulator is designed to work like my Nascom2 setup with 
     MAP80 256k Ram card
     MAP80 VFC card
+    Z80 PIO on ports #04 to #07
     CHS Clock card at port #D0-D4 or ports #88-#8B
     but also supports the 
     Emulation of Neal Crook's NASCOM 4, including the N4 SD card interface
@@ -24,6 +25,7 @@ map80nascom {flags} files
 
         {flags}
         -n           emulator Nascom 2, the default.
+        -2           emulator Nascom 2 same as -n
         -v           emulate VFC boot for CPM.
         -4           emulate the N4.
         -c <file>    use this file as the N4 SD card image.
@@ -36,6 +38,7 @@ map80nascom {flags} files
         -l start:end limits the trace process to with an address range.
         -d <level>   debug level : 1 is verbose see below for more details.
         -x           use bios monitor when starting and stopped.
+        -p portno    use this port for the communcation stuff default 5555
         files        a list of nas files to load.
 
 Note: You can exit the emulator by pressing F4, closing either of the windows or by doing Control+c on the terminal.
@@ -191,11 +194,19 @@ It is on
 * Port 7 Port B control  
 
 It can handle Input, Output or Control modes. Bidirectional is not yet supported.  
+The status of the ports is shown on the "Map80Nascom status"" screen  
+The mode is shown by M0 to M3 on the right of the port  
+The status of the lines is shown by up or down chevrons  
+and the value by colour as well as a binary and hex value.  
+When using Control mode the IO and interrupt masks are shown above the port  
+When control interrupts are set & is used to donate AND mode and | for OR mode  
+        and an up arrow for 1 and a down arrow for 0 active.
+
 
 It will generate a maskable interrupt at the correct time.  
 although the coding lacks some of the complexity of the real thing. :)  
 
-See my test program testPIOInt 
+See my test program testPIOInt,  testPIOintAB hopefully under the nasfiles folder.  
 
 The access the PIO output you can telnet to port 5555 ( e.g telnet 127.0.0.1 5555)  
 
@@ -215,7 +226,6 @@ the response to the commands is the return the value in the Port Register
 There is an unsolicited send, to all clients, of  
 * RA or RB when the PIO RDY line goes to 1.
 * CA XX or CB XX when one of the data lines is changed by the cpu in control mode.
-
 
 
 Serial Input and Output:
@@ -269,6 +279,8 @@ the -d options are
 * 5 - show the VFC paging in and out
 * 6 - show the VFC floppy drive commands
 * 7 - show the VFC floppy disc sectors
+* 8 - show the PIO debug information
+* 9 - show the commuication debug information
 
 If you use the -d you must include at least 1 option but you can include as many as you want
 

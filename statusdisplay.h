@@ -155,18 +155,19 @@ void status_GetWindowSize(int* w, int* h);
 void status_display_change_size(int sizefactor);
 
 
-void status_display_show_char_full(char ch, unsigned int col, unsigned int row, 
-          uint32_t charcolour, uint32_t bg_colour);
-
-void status_display_show_chars_full(char * stringdata, unsigned int col, unsigned int row, 
-          uint32_t charcolour, uint32_t bg_colour);
+//void status_display_show_chars_full(char * stringdata, unsigned int col, unsigned int row, 
+//          uint32_t charcolour, uint32_t bg_colour);
           
-void status_display_show_chars(const char *str, int col, int row);
+void status_display_set_char(char ch, unsigned int col, unsigned int row,  uint32_t fg_color, uint32_t bg_color);
+
+void status_display_clear(char ch, unsigned int col, unsigned int row, unsigned int numberof,
+          uint32_t charcolour, uint32_t bg_color);
+          
+void status_display_show_chars(const char *str, unsigned int col, unsigned int row);
 
 void status_display_show_chars_full(char * stringdata, unsigned int col , unsigned int row, 
         uint32_t charcolour, uint32_t bg_colour);
         
-void status_set_char(unsigned char ch, int col, int row,  uint32_t fg_color, uint32_t bg_color);
 
 
 void status_display_change_size(int sizefactor);

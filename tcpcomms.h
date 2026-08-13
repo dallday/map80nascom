@@ -25,5 +25,6 @@ void tcpcomms_close(int lfd);
 
 void send_data_to_all_clients( const char *reason);
 
+extern int commsdebug;
 
 #endif

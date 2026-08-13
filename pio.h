@@ -26,10 +26,10 @@ typedef struct {
     unsigned char Portrdy;      // active high when data ready (output) or needed (input)
     unsigned char Portstb;      // active low pulse to say data collected (output) or provided (input)
     unsigned char PortInterruptAllowed; // set to 1 if allowed set interrupt control word or interrupt disable word
-    unsigned char PortIEI; // from last status call 
-    unsigned char PortIEO; // from last status call 
-    unsigned char PortInterruptBeingServiced;    // set to low if interrupt was being serviced waiting for RETI
-    unsigned char Portint;      // set low if interrupt requested but only if allowed 
+//    unsigned char PortIEI; // from last status call 
+//    unsigned char PortIEO; // from last status call 
+    unsigned char PortInterruptBeingServiced;    // set to 1 if interrupt was being serviced waiting for RETI
+    unsigned char Portint;      // set 1 if interrupt state occurs for the port but it may not be able to  request interrupt :)
 } PIOchip;
 
 
@@ -49,6 +49,7 @@ int PIO_Portb_data_in();
 int PIO_Porta_control_in();
 int PIO_Portb_control_in();
 
+void reportportstate(PIOPortSelect PortNo);
 
 void displayPIOoutline();
 void displayPIObasic(PIOPortSelect PIOPort);
@@ -57,8 +58,9 @@ void displayPIObasic(PIOPortSelect PIOPort);
 void displayPIOportAlines(PIOPortSelect PIOPort);
 
 // interrupt handling routines
-int PIOstatuscheck(int IEI);
-WORD PIOInterruptAcknowledge(); 
+int PIOstatuscheck(int IEI, int *IEO);
+int PIOInterruptAcknowledge(int IEI, int *IEO);
+void PIOCheckRETI(int IEI, int *IEO);
 
 // device connection routines
 unsigned char PIODeviceReadPort(PIOPortSelect PortNo);

@@ -85,10 +85,14 @@ extern WORD IFF; // the impliments IFF1 (bit 0 )  and IFF2 (bit 1)
 
 extern int interruptMode;
 
+extern int MaskableInterruptRequest; // added to for each interrupt request TODO check if goes below 0 
+
 // set to 3 when a maskable interrupt is requested
 // it will countdown each cycle and when it gets to 1 will set IFF1 ( IFF2 will be set by EI )
 // TODO check RETN 
 extern int delayMaskableInterrupt;
+
+extern WORD VectorAddress; // used to set vectore address for mode 2 interrupt
 
 
 // fix DA see options.h for these definitions
@@ -332,5 +336,11 @@ extern void out(unsigned int, unsigned char);
 
 // DA N4 put all the reset stuff in one routine
 extern void resetEmulator(int resetType);
+
+// routines to call devices for maskable interrupt processing
+extern void InterruptCheckProcess();
+extern int InterruptAcknowledgeProcess();
+extern void RETIProcess();
+
 
 // end of code

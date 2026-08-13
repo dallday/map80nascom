@@ -1,6 +1,6 @@
 /*
  * 
- *  map80nascom version 9.2.2
+ *  map80nascom version 9.2.3
  * 
          Copyright (c) David Allday 2021-2026
          Uses code base from Virtual Vascom 
@@ -75,15 +75,15 @@
  *  emulates the PIO on the mascom ( shows details on the status window )
  *     the output lines can be read or written to using telnet on port 5555 (default)
  *     the control lines should work 
- *     the maskable interrupt works for int mode 2 ( but is quite simple )
+ *     the maskable interrupt works for int mode 2 
  *  
- *  Halt - instruction does just halt the cpu and puts a red HALT in th status window
+ *  Halt - instruction does just halt the cpu and puts a red HALT in the status window
  *  
  * 
  * Note I used codelite to build this 
  * you need to change the working directory from $(IntermediateDirectory) 
  * to the diredtory that contains the rom etc diretories
- * try $(ProjectPath) nope ?
+ * 
  * or just copy the rom folder to the debug folder etc.,
  * 
  * 
@@ -151,6 +151,10 @@ int chsclockcarddebug=0;
 int nascompagedebug=0;
 // set to 1 to show the N4 Port changes
 int N4portdebug=0;
+// set to 1 to show PIO debug info
+int PIOdebug=0;
+// set to 1 to show the communication stuff
+int commsdebug=0;
 
 
 // DA N4 no longer used now handled by the REMAP port 
@@ -178,6 +182,7 @@ struct ddregs regs[2];          /* bc,de,hl */
 int regs_sel;                   /* bank select for ddregs */
 
 int interruptMode=0;            /* set to the maskable interrupt mode */
+WORD VectorAddress;             // set to the vectore address for mode 2
 
 WORD ir;                        /* other Z80 registers */
 WORD ix;
@@ -185,6 +190,10 @@ WORD iy;
 WORD sp;
 WORD pc;
 WORD IFF;
+
+// this will be set to > 1 if maskable interrupt has been requested
+// 
+int MaskableInterruptRequest=0; 
 
 
 //BYTE ram[RAMSIZE*1024]; see the memory file
@@ -363,6 +372,7 @@ static void usage(char * progname)
  "\t\t-l start:end limits the trace process to with an address range\n"
  "\t\t-d <level>   debug level : 1 is verbose\n"
  "\t\t-x           use bios monitor when starting and stopped\n"
+ "\t\t-p  portno   specifies the port to use for communcation defult 5555\n"
  "\t\tfiles        a list of nas files to load\n"
 
             ,progname);
@@ -398,8 +408,8 @@ int main(int argc, char **argv){
     //printf("display modes\n");
     //reportdisplaymodes();
     // it returns ? if invalid option having reported invalid option
-    // do we need a multiple level for option d ?? TODO
-    while ((c = getopt(argc, argv, "l:m:c:f:i:o:s:d:xnv4t")) != EOF) {
+
+    while ((c = getopt(argc, argv, "p:l:m:c:f:i:o:s:d:xn2v4t")) != EOF) {
         
         // printf("Option %c\n",c);
         
@@ -423,6 +433,7 @@ int main(int argc, char **argv){
             traceon=1;
             break;
         case 'n':
+        case '2':
             emulator_mode='n';
             break;
         case 'v':
@@ -459,6 +470,10 @@ int main(int argc, char **argv){
                 case '7':
                     vfcfloppydisplaysectors=1;
                     break;
+                case '8':
+                    PIOdebug=1;
+                case '9':
+                    commsdebug=1;
                 default:
                     if (optarg[cpos] == '-') {
                         printf ("Think you forgot the value for -d ? \n");
@@ -503,11 +518,24 @@ int main(int argc, char **argv){
             sscanf(optarg, "%d", &scalevalue);
             if (scalevalue >0 && scalevalue < 10 ){
                 scaledisplays=scalevalue;
-            }
+                }
             else{
                 printf("Scale value of %d is not valid\n",scalevalue);
-            }
+                }
             break;
+            }
+        case 'p':{
+                // set the comms port 
+            int portvalue=0;
+            sscanf(optarg, "%d", &portvalue);
+            if (portvalue >1024 && portvalue < 65536 ){
+                tcpcomms_port=portvalue;
+                }
+            else{
+                printf("Port value of %d is not valid\n",portvalue);
+                }
+            break;
+                
             }
         }
         

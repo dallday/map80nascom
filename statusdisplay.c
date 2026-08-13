@@ -291,23 +291,40 @@ void status_on_mouse_button_down(int x, int y, Uint8 button) {
     }
 }
 
-void status_display_show_char_full(char ch, unsigned int col, unsigned int row, 
+/*
+ * This is the main routine for adding characters to the screen
+ * it checks if the position is out of bounds and ignores it if it is.
+ */
+void status_display_set_char(char ch, unsigned int col, unsigned int row, 
           uint32_t charcolour, uint32_t bg_color){
     if (row < 0 || row >= STATUS_ROWS || col < 0 || col >= STATUS_COLS) return;
     status_screen_chars[row][col] = ch;
     status_screen_fg_colors[row][col] = charcolour;
     status_screen_bg_colors [row][col] = bg_color;
               
-          }
+}
+
+/*
+ * writes the same character from col row for a numberof characters
+ */
+void status_display_clear(char ch, unsigned int col, unsigned int row, unsigned int numberof,
+          uint32_t charcolour, uint32_t bg_color){
+
+    for (int pos1=0;pos1<numberof;pos1++){
+        status_display_set_char(ch,col+pos1,row,charcolour,bg_color);
+    }
+    
+}
+
           
 /*
  * display a string on the screen using character position value x col and y row 
  * 
  */
 
-void status_display_show_chars(const char *str, int col, int row) {
+void status_display_show_chars(const char *str, unsigned int col, unsigned int row) {
     for (int i = 0; str[i] != '\0' && (col + i) < STATUS_COLS; i++) {
-        status_set_char( (unsigned char)str[i], col + i, row,  STATUS_COLOR_BLACK, STATUS_COLOR_BACKGROUND);
+        status_display_set_char( (unsigned char)str[i], col + i, row,  STATUS_COLOR_BLACK, STATUS_COLOR_BACKGROUND);
     }
 }
 
@@ -320,16 +337,10 @@ void status_display_show_chars(const char *str, int col, int row) {
 void status_display_show_chars_full(char * stringdata, unsigned int col , unsigned int row, 
         uint32_t charcolour, uint32_t bg_color){
                 for (int i = 0; stringdata[i] != '\0' && (col + i) < STATUS_COLS; i++) {
-        status_set_char( (unsigned char)stringdata[i], col + i , row, charcolour, bg_color);
+        status_display_set_char( (unsigned char)stringdata[i], col + i , row, charcolour, bg_color);
     }
 }
             
-void status_set_char(unsigned char ch, int col, int row,  uint32_t fg_color, uint32_t bg_color) {
-    if (row < 0 || row >= STATUS_ROWS || col < 0 || col >= STATUS_COLS) return;
-    status_screen_chars[row][col] = ch;
-    status_screen_fg_colors[row][col] = fg_color;
-    status_screen_bg_colors[row][col] = bg_color;
-}
 
 
 void status_display_change_size(int sizefactor){

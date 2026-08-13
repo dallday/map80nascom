@@ -792,41 +792,60 @@ simz80(FASTREG PC, int count, int (*fnc)(),int numberInstructions)
       }
       // check status of devices for interrupt etc.,
       
-      WORD VectorAddress;
-      int IEI=1;
-      int IEO=1;
+      InterruptCheckProcess();
       
-      IEO=PIOstatuscheck(IEI);
-      if (IEO==0 && IEI==1){  // check if in was 1 - should not set to 0 if IEI was not 1 TODO check
+      //  now check if we have an interrupt request 
+      
+      if (MaskableInterruptRequest<0){  // check if something has gone wqrong
+        printf("MaskableInterruptRequest is below 0  (%d) - resetting to 0",MaskableInterruptRequest);
+        MaskableInterruptRequest=0;
+      }
+      
+      if (MaskableInterruptRequest>0){  // check if someone requested an interrupt
         if (IFF & 0x01){
                   // IFF flag is set so we can do the maskable interrupt
                   // we need to acknowledge the intrerrupt 
                   // and depending upon the interrupt mode get stuff from the device 
                   // TODO how ??
-            VectorAddress= PIOInterruptAcknowledge();
-            switch(interruptMode){
-            case 2:
-                // save current address
-                PUSH (PC);
-                // add the returned address to I register 
-                VectorAddress=(ir&0xFF00) | VectorAddress; 
-                PC=GetWORD(VectorAddress);
-                IFF=0; // disable maskable interrupt
-                break;
-            case 1:
-                // save current address
-                PUSH (PC);
-                // set interupt address
-                PC=0x38;
-                IFF=0;
-                break;
-            default:
-                // type 0 is perform op code ???
-                // not for the PIO 
-                // we cannot do that :(
-            }
 
-        }
+            int IEI=1; // reset interrupt daisy chain
+            int IEO=1;
+            int statusreply=0;
+            
+            statusreply= PIOInterruptAcknowledge(IEI, &IEO);
+            if (statusreply==0){
+              IEI=IEO;
+              // should now call each devices statuscheck routines
+              // intil one says yep ??
+              printf("error - did interrupt acknowledge but got no vectore address ");
+            }
+            if (statusreply>0){
+                // hopefully we will get a reply from someome :)
+                switch(interruptMode){
+                case 2:
+                    // save current address
+                    PUSH (PC);
+                    // add the returned address to I register 
+                    VectorAddress=(ir&0xFF00) | VectorAddress; 
+                    PC=GetWORD(VectorAddress);
+                    IFF=0; // disable maskable interrupt
+                    break;
+                case 1:
+                    // save current address
+                    PUSH (PC);
+                    // set interupt address
+                    PC=0x38;
+                    IFF=0;
+                    break;
+                default:
+                    // type 0 is perform op code ???
+                    // not for the PIO 
+                    // we cannot do that :(
+                }
+            }
+        }  
+
+        
       }
 
 
@@ -2172,6 +2191,8 @@ simz80(FASTREG PC, int count, int (*fnc)(),int numberInstructions)
 			PC += 2;
 			break;
 		case 0x4D:			/* RETI */
+            // DA 2026 tell devices RETI being processed
+            RETIProcess();
 			IFF |= IFF >> 1;    // copies bit1 to bit 0
 			POP(PC);
 			break;
@@ -2618,7 +2639,7 @@ simz80(FASTREG PC, int count, int (*fnc)(),int numberInstructions)
     if(calldisableSBROM>0){
         // substract 1 and check the new value
         if ( (--calldisableSBROM) == 0 ) {
-            fprintf(stdout,"Disabling SBROM");
+            //fprintf(stdout,"Disabling SBROM\n");
             DisableSBROM();
         }
     }
@@ -2650,6 +2671,53 @@ simz80(FASTREG PC, int count, int (*fnc)(),int numberInstructions)
     SAVE_STATE();
     return (PC&0xffff)|0x10000;	/* flag non-bios stop */
 }
+
+void InterruptCheckProcess(){
+
+      int IEI=1;
+      int IEO=1;
+        
+      PIOstatuscheck(IEI,&IEO);
+
+      IEI=IEO;
+      
+      // should now call each devices statuscheck routines
+            // these are to do any stuff needed and ot set the EIO and interrupt flag.
+      // once the IEO ( the IEI for the next device) goes low then the following devices cannot raise an INT
+    
+      // process will set MaskableInterruptRequest > 0 if int required
+    
+}
+
+
+
+int InterruptAcknowledgeProcess(){
+   
+    
+
+    return 0;
+    
+}
+
+
+/*
+ * this calls each device to tell them an RETI is been executed
+ */
+
+void RETIProcess(){
+
+      int IEI=1;
+      int IEO=1;
+        
+      PIOCheckRETI(IEI,&IEO);
+      
+      IEI=IEO;
+      
+      
+      // should now call each devices statuscheck routines
+    
+}
+
 
 
 // end of code

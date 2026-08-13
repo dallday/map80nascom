@@ -132,7 +132,7 @@ int map80vfc_create_screen(BYTE *screenMemory){
                 MAP80VFCDISPLAY_DISPLAY_HEIGHT, // Height of the window in pixels 
                 SDL_WINDOW_RESIZABLE);  // SDL_WINDOW_RESIZABLE // Additional flag(s)
 
-    printf("display width %d display height %d \n",MAP80VFCDISPLAY_DISPLAY_WIDTH,MAP80VFCDISPLAY_DISPLAY_HEIGHT);
+    // printf("display width %d display height %d \n",MAP80VFCDISPLAY_DISPLAY_WIDTH,MAP80VFCDISPLAY_DISPLAY_HEIGHT);
 
     /* Checks if window has been created; if not, exits program */
 

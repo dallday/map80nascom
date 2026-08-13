@@ -77,7 +77,9 @@ static void set_nonblocking(int fd)
 
 static void client_close(client_t *c)
 {
-    printf("[fd %d] client disconnected\n", c->fd);
+    if (commsdebug){
+        printf("[fd %d] client disconnected\n", c->fd);
+    }
     close(c->fd);
     c->fd = -1;
     c->buf_len = 0;
@@ -160,14 +162,18 @@ static void handle_line(client_t *c, char *line)
     if (strcmp(cmd, "QA") == 0) {
         // command RA
         regA=PIODeviceReadPort(PIOPORTA);
-        printf("[fd %d] QA -> 0x%02X\n", c->fd, regA);
+        if (commsdebug){
+            printf("[fd %d] QA -> 0x%02X\n", c->fd, regA);
+        }
         
         if (send_hex_reply(c, regA) < 0) client_close(c);
 
     } else if (strcmp(cmd, "QB") == 0) {
         // command RB
         regB=PIODeviceReadPort(PIOPORTB);
-        printf("[fd %d] QB -> 0x%02X\n", c->fd, regB);
+        if (commsdebug){
+            printf("[fd %d] QB -> 0x%02X\n", c->fd, regB);
+        }
         if (send_hex_reply(c, regB) < 0) client_close(c);
 
     } else if (strcmp(cmd, "WA") == 0 || strcmp(cmd, "WB") == 0) {
@@ -189,7 +195,9 @@ static void handle_line(client_t *c, char *line)
         else {
             regB = PIODeviceWritePort(PIOPORTB,val);
         }
-        printf("[fd %d] %s %02X -> ack %02X\n", c->fd, cmd, val, val);
+        if (commsdebug){
+            printf("[fd %d] %s %02X -> ack %02X\n", c->fd, cmd, val, val);
+        }
         if (send_hex_reply(c, val) < 0) client_close(c);
     
     } else if (strcmp(cmd, "RA") == 0 || strcmp(cmd, "RB") == 0) {
@@ -202,7 +210,9 @@ static void handle_line(client_t *c, char *line)
         else {
             val = PIOReadReadyLine(PIOPORTB);
         }
-        printf("[fd %d] %s -> ack %02X\n", c->fd, cmd, val);
+        if (commsdebug){
+            printf("[fd %d] %s -> ack %02X\n", c->fd, cmd, val);
+        }
         if (send_hex_reply(c, val) < 0) client_close(c);
         
 
@@ -289,8 +299,10 @@ static void accept_new_connections(int lfd)
             continue;
         }
 
-        printf("[fd %d] client connected: %s:%d\n",
+        if (commsdebug){
+            printf("[fd %d] client connected: %s:%d\n",
                cfd, inet_ntoa(cliaddr.sin_addr), ntohs(cliaddr.sin_port));
+        }
     }
 }
 
@@ -380,17 +392,27 @@ void tcpcomms_close(int lfd)
     close(lfd);
 }
 
-
+/*
+ * Send a message to all clients connected to the server
+ * 
+ * It will add the end line so the reason should not end with \n
+ * This makes the debug message on the terminal cleaner
+ * 
+ */
 
 void send_data_to_all_clients( const char *reason){
 
-
+    char line[64];
+    int len = snprintf(line, sizeof(line), "%s\n", reason);
+   
     for (int clientno=0;clientno<MAX_CLIENTS ; clientno++){
         if (clients[clientno].fd>0){
-        
             //clients[MAX_CLIENTS];
-            printf("sending \"%s\" to client %d\n",reason,clientno);
-            if (write_all(clients[clientno].fd, reason, sizeof(reason)) < 0){
+            if (commsdebug){
+                printf("sending \"%s\" to client %d\n",reason,clientno);
+            }
+            if (write_all(clients[clientno].fd, line, len) < 0) {
+            // if (write_all(clients[clientno].fd, reason, sizeof(reason)) < 0){
                 printf("Whoops error sending %s to client %d\n",reason,clientno);
             }
         

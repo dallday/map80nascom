@@ -23,6 +23,8 @@
 #include "tcpcomms.h"
 
 
+
+
 // this is a array structure to define both port a and port b
 PIOchip PIOPorts [2]={0};
 
@@ -30,6 +32,8 @@ PIOchip PIOPorts [2]={0};
 /* called to reset the PIO state 
  * as per the datasheet
  * hopefully :)
+
+ * a reset does NOT clear the interrupt vector address
  */
  
 void PIOreset(){
@@ -40,26 +44,32 @@ void PIOreset(){
         PIOPorts[portno].Portdata=0;
         PIOPorts[portno].Portsecondbyteexpected=0; // set to 1 if expect a second byte
         PIOPorts[portno].Portrdy=0;      // active high when data ready (output) or needed (input)
-        PIOPorts[portno].Portstb=1;      // active low pulse to say data collected (output) or provided (input)
-        PIOPorts[portno].PortInterruptAllowed=0; // set to 1 if allowed sett interrupt control word or interrupt disable word
-        PIOPorts[portno].Portint=1;      // set low if interrupt requested but only if allowed 
-    }
-}
-
-void PIOtotalreset(){
- 
-    PIOreset();
-
-    for (int portno=0;portno<2;portno++){
-        
+        // PIOPorts[portno].Portstb=1;      // active low pulse to say data collected (output) or provided (input)
+        PIOPorts[portno].PortInterruptAllowed=0; // set to 1 if allowed to genetate an interrupt request
+        PIOPorts[portno].Portint=0;      // set low if interrupt requested but only if allowed 
+        PIOPorts[portno].PortInterruptBeingServiced=0;  // no interrupt beeing processed 
         PIOPorts[portno].Portcontrol=0;
-        PIOPorts[portno].Portintvector=0;
         PIOPorts[portno].Portandor=0;
         PIOPorts[portno].Porthighlow=0;
         PIOPorts[portno].Portintmask=0;
         PIOPorts[portno].Portiomask=0;
         PIOPorts[portno].Portlastintvalue=0xFF;  //should stop interrupt on first call ??
+        displayPIOportAlines(portno);
+        //displayPIOportAlines(PIOPORTB);
     }
+}
+
+/* 
+ * a full reset clears the interrupt vector address
+ */
+void PIOtotalreset(){
+
+
+    for (int portno=0;portno<2;portno++){
+        PIOPorts[portno].Portintvector=0;
+    }
+    PIOreset();
+
 }
 
 /*
@@ -89,6 +99,8 @@ int PIO_Set_Mode(PIOPortSelect PIOPort,unsigned char value){
     if (mode1==3){ // only if in mode 3 expect the io mask
                     // set to 1 means input set to 0 means output
                     // During Mode 3 operation, the strode signal is ignored and the Ready line is held Low. 
+        if (PIOdebug) printf("Port %c - IO mask expected\n",PIOPort==PIOPORTA ? 'A':'B');
+
         retval=1;
     }
 
@@ -117,9 +129,9 @@ void PIO_Port_Data_out_common(PIOPortSelect PortNo,unsigned char value) {
         PIOPorts[PortNo].Portrdy=1;
         PIOPorts[PortNo].Portdata=value;
         if (PortNo==0){
-            send_data_to_all_clients("AR\n");
+            send_data_to_all_clients("AR");
         } else {
-            send_data_to_all_clients("BR\n");
+            send_data_to_all_clients("BR");
         }
         break;
     case PIOBIDIRECTIONAL:
@@ -150,7 +162,7 @@ void PIO_Port_Data_out_common(PIOPortSelect PortNo,unsigned char value) {
         }
         if (newportvalue != PIOPorts[PortNo].Portdata){
             char line[64];
-            snprintf(line, sizeof(line), "C%c %2.2X\n",PortNo==PIOPORTA ? 'A':'B',newportvalue);
+            snprintf(line, sizeof(line), "C%c %2.2X",PortNo==PIOPORTA ? 'A':'B',newportvalue);
             send_data_to_all_clients(line);
         }
         PIOPorts[PortNo].Portdata=newportvalue;
@@ -162,7 +174,10 @@ void PIO_Port_Data_out_common(PIOPortSelect PortNo,unsigned char value) {
         break;
     }
     displayPIOportAlines(PortNo);
-    printf("CPU write Port  %c value %2.2X port now %2.2X\n", PortNo==PIOPORTA ? 'A':'B',value, PIOPorts[PortNo].Portdata);
+    if (PIOdebug) {
+        printf("CPU write Port  %c value %2.2X port now %2.2X\n", 
+            PortNo==PIOPORTA ? 'A':'B',value, PIOPorts[PortNo].Portdata);
+    }
 
 }
 
@@ -172,10 +187,29 @@ void PIO_Port_Data_out_common(PIOPortSelect PortNo,unsigned char value) {
  * produces a value that is the current state of the interrupt lines
  * then compares it with last times before raising an interrupt
  * 
+ * found that if looking for high values on the data lines
+ * If the condition was all lines (AND) and high
+ *  since the int mask has 0 for active int and 1 for not active
+ *  if all the active data lines were 1, and all the non interrupt lines 1 in the Int mask
+ *  using or we will be 0xFF if all the interrupt lines are set.
+ * 
+ * If the condition is any line (OR) and high
+ *  after the OR of the data and Interrupt mask
+ *  I then invert the Interrupt mask and and it with the result of the OR
+ *  If the results is > 0 then omne of the lines is high
+ *  again need to check if this is a new condition or not.
+ * 
+ * If the condition is for low values 
+ *   inverting the data lines at the start works.
+ * 
+ * Note: - although the conditions may exist to set the int flag
+ *          it will only happen if interrupt mode is set and IEI is high :)
+ * 
+ * 
  */ 
 void PIO_checkcontrolInterrupt(PIOPortSelect PortNo){
 
-    unsigned char PIOmask=PIOPorts[PortNo].Portintmask;
+    unsigned char PIOintmask=PIOPorts[PortNo].Portintmask;
     unsigned char PIOdata=PIOPorts[PortNo].Portdata;
     unsigned char step1;
     unsigned char step2; 
@@ -185,37 +219,48 @@ void PIO_checkcontrolInterrupt(PIOPortSelect PortNo){
             // invert the data
             PIOdata=~PIOdata;
         }
-        // now or with data mask
-        step1 = (PIOdata | PIOmask);
+        // now or data with the interrupt mask
+        step1 = (PIOdata | PIOintmask);
         if (PIOPorts[PortNo].Portandor == 1){
-            // doing an and on the masked lines
+            // we need all the required lines to be HIGH 
+            // since the int mask has 0 for active int and 1 for not active
+            // if all the active data lines were 1, and all the non interrupt lines 1 in the Int mask
+            // using or we will be 0xFF if all the interrupt lines are set
+            // 
             if (step1 == 0xFF){
+                // but we need to check if this is a change from the last check
+                // interrupts only get generated on change.
                 if (step1 != PIOPorts[PortNo].Portlastintvalue){
-                    // new change to line 
-                    PIOPorts[PortNo].Portint=0;
+                    // new change to line - set to say interrupt can be generated
+                    PIOPorts[PortNo].Portint=1;
                 }
             }
-            printf("Port %c interrupt %u using AND value %2.2X  previous value %2.2X \n", 
-                PortNo==PIOPORTA ? 'A':'B',PIOPorts[PortNo].Portint,step1,PIOPorts[PortNo].Portlastintvalue);
+            if (PIOdebug) {
+                // this tells me if the interrupt state has changed.
+                printf("Port %c interrupt %u using AND value %2.2X  previous value %2.2X \n", 
+                    PortNo==PIOPORTA ? 'A':'B',PIOPorts[PortNo].Portint,step1,PIOPorts[PortNo].Portlastintvalue);
+            }
             PIOPorts[PortNo].Portlastintvalue=step1;
         }else{
             // looking for any lines high (or)
-            PIOmask=~PIOmask;
-            step2=step1 & PIOmask;
+            PIOintmask=~PIOintmask;
+            step2=step1 & PIOintmask;
             if (step2 > 0){
                 if (step2 != PIOPorts[PortNo].Portlastintvalue){
                     // new change to line 
-                    PIOPorts[PortNo].Portint=0;
+                    PIOPorts[PortNo].Portint=1;
                 }
             }
+            if (PIOdebug) {
+                // this tells me if the interrupt state has changed.
                 printf("Port %c interrupt %u using OR value %2.2X  previous value %2.2X \n", 
-                PortNo==PIOPORTA ? 'A':'B',PIOPorts[PortNo].Portint,step1,PIOPorts[PortNo].Portlastintvalue);
+                    PortNo==PIOPORTA ? 'A':'B',PIOPorts[PortNo].Portint,step1,PIOPorts[PortNo].Portlastintvalue);
+            }
             PIOPorts[PortNo].Portlastintvalue=step2;
         }
     }
     
 }
-
 
 
 
@@ -280,21 +325,17 @@ void PIO_control_out_common(PIOPortSelect PortNo,unsigned char value){
                 // bit 6 selects either and (1) or or (0)
                 // bit 5 selects high (1) or low (0)
                 // bit 4 set if int mask follows 
-                    PIOPorts[PortNo].PortInterruptAllowed=((value & 0x80)==0x80);
-                    PIOPorts[PortNo].Portandor=((value & 0x40)==0x40);
-                    PIOPorts[PortNo].Porthighlow=((value & 0x20)==0x20);
-                    if ((value &0x10) == 0x10){
-                        PIOPorts[PortNo].Portsecondbyteexpected=2; // int mask follows
-                        printf("Interrupt mask expected\n");
-                    }
-                    // TODO need to set Portlastintvalue so it does not trigger straight away 
-                    // or maybe will
-                    PIOPorts[PortNo].Portlastintvalue=0x00;
-
-                    printf("interrupts allowed %2.2X\n", PIOPorts[PortNo].PortInterruptAllowed);
-                    printf("and or set to      %2.2X\n", PIOPorts[PortNo].Portandor);
-                    printf("high low set to    %2.2X\n", PIOPorts[PortNo].Porthighlow);
-
+                PIOPorts[PortNo].PortInterruptAllowed=((value & 0x80)==0x80);
+                PIOPorts[PortNo].Portandor=((value & 0x40)==0x40);
+                PIOPorts[PortNo].Porthighlow=((value & 0x20)==0x20);
+                if ((value &0x10) == 0x10){
+                    PIOPorts[PortNo].Portsecondbyteexpected=2; // int mask follows
+                    if (PIOdebug) printf("Port %c - Interrupt mask expected\n",PortNo==PIOPORTA ? 'A':'B');
+                }
+                // TODO need to set Portlastintvalue so it does not trigger straight away 
+                // or maybe will
+                PIOPorts[PortNo].Portlastintvalue=0x00;
+                reportportstate(PortNo);
     
             }
             
@@ -320,7 +361,7 @@ int PIO_Porta_data_in(){
     } else {
         if ( PIOPorts[PIOPORTA].Portmode == PIOIN ){
             PIOPorts[PIOPORTA].Portrdy=1;
-            send_data_to_all_clients("AR\n");
+            send_data_to_all_clients("AR");
         }
         retval= PIOPorts[PIOPORTA].Portdata;
     }
@@ -337,7 +378,7 @@ int PIO_Portb_data_in(){
     } else {
         if ( PIOPorts[PIOPORTB].Portmode == PIOIN ){
             PIOPorts[PIOPORTB].Portrdy=1;
-            send_data_to_all_clients("BR\n");
+            send_data_to_all_clients("BR");
         }
         retval=PIOPorts[PIOPORTB].Portdata;
     }
@@ -357,10 +398,37 @@ int PIO_Portb_control_in(){
     return 0xFF;
 }
 
+/* 
+ * reporting might be over kill ??
+ */
+
+void reportportstate(PIOPortSelect PortNo){
+
+    if (PIOdebug) {
+        printf("Port%c \n", PortNo==PIOPORTA ? 'A':'B');
+        printf("\tPort Data   %2.2X\n",PIOPorts[PortNo].Portdata);
+        printf("\tInt Vector  %4.4X\n",PIOPorts[PortNo].Portintvector);
+        printf("\tInt Mask    %2.2X\n",PIOPorts[PortNo].Portintmask);  // control mode 3 - interrupt mask 0 means monitor
+        printf("\tIO Mask     %2.2X\n",PIOPorts[PortNo].Portiomask);   // control mode 3 input (1) or output lines
+        printf("\tLast int    %2.2X\n",PIOPorts[PortNo].Portlastintvalue); // holds the last interrupt value for control mode 3
+        printf("\t2nd byte rd %2.2X\n",PIOPorts[PortNo].Portsecondbyteexpected); // set to 1 if expect a second byte
+        printf("\tReady line  %2.2X\n",PIOPorts[PortNo].Portrdy);      // active high when data ready (output) or needed (input)
+        // printf("\tStobe       %2.2X\n",PIOPorts[PortNo].Portstb);      // active low pulse to say data collected (output) or provided (input)
+        printf("\tint allowed %2.2X\n",PIOPorts[PortNo].PortInterruptAllowed);
+        printf("\tand or      %2.2X\n",PIOPorts[PortNo].Portandor);
+        printf("\thigh low    %2.2X\n",PIOPorts[PortNo].Porthighlow);
+        printf("\tInt Served  %2.2X\n",PIOPorts[PortNo].PortInterruptBeingServiced);    // set to 1 if interrupt was being serviced waiting for RETI
+        printf("\tPort int    %2.2X\n",PIOPorts[PortNo].Portint);      // set 1 if int state exists 
+        
+    }
+}
+
+
+
 #define Pio_portA_display_x 1
 #define Pio_portB_display_x 20
-#define Pio_portA_display_y 11
-#define Pio_portB_display_y 11
+#define Pio_portA_display_y 12
+#define Pio_portB_display_y 12
 
 
 void displayPIOoutline(){
@@ -507,23 +575,30 @@ void displayPIOportAlines(PIOPortSelect PortNo){
             default:
                 break;
         }
-        status_display_show_char_full(connectortop,bitposx,posy,charcolour,STATUS_COLOR_BACKGROUND);
-        status_display_show_char_full(connectorbottom,bitposx,posy+5,charcolour,STATUS_COLOR_BACKGROUND);
+        status_display_set_char(connectortop,bitposx,posy,charcolour,STATUS_COLOR_BACKGROUND);
+        status_display_set_char(connectorbottom,bitposx,posy+5,charcolour,STATUS_COLOR_BACKGROUND);
         bitposx++; // step on 1 character
         mask=mask>>1;
     }    
-        // clear  INT info
-        status_display_show_chars_full("   ",posx+10,posy+3,charcolour,STATUS_COLOR_BACKGROUND);
-        status_display_show_chars_full(" ",posx+11,posy+5,charcolour,STATUS_COLOR_BACKGROUND);
-        // clear  rdy info
-        status_display_show_chars_full("   ",posx+10,posy+2,charcolour,STATUS_COLOR_BACKGROUND);
-        status_display_show_chars_full(" ",posx+11,posy,charcolour,STATUS_COLOR_BACKGROUND);
-        // clear mask line 
-        status_display_show_chars_full("       ",posx+2,posy-2,STATUS_COLOR_BLACK,STATUS_COLOR_BACKGROUND);
-        status_display_show_chars_full("        ",posx+1,posy-1,STATUS_COLOR_BLACK,STATUS_COLOR_BACKGROUND);
+    // clear  INT info
+    status_display_clear(' ',posx+10,posy+3,3,charcolour,STATUS_COLOR_BACKGROUND);
+    status_display_clear(' ',posx+10,posy+5,3,charcolour,STATUS_COLOR_BACKGROUND);
+    // clear  rdy info
+    status_display_clear(' ',posx+10,posy+2,3,charcolour,STATUS_COLOR_BACKGROUND);
+    status_display_clear(' ',posx+11,posy,1,charcolour,STATUS_COLOR_BACKGROUND);
+    // clear masks lines
+    status_display_clear(' ',posx+1,posy-2,18,STATUS_COLOR_BLACK,STATUS_COLOR_BACKGROUND);
+    status_display_clear(' ',posx+1,posy-1,18,STATUS_COLOR_BLACK,STATUS_COLOR_BACKGROUND);
+    // clear mode
+    status_display_set_char(' ',posx+14,posy+2,STATUS_COLOR_BLACK,STATUS_COLOR_BACKGROUND);
+    status_display_set_char(' ',posx+14,posy+3,STATUS_COLOR_BLACK,STATUS_COLOR_BACKGROUND);
 
     if (PioPortMode!=PIONONE) {
-        //status_display_show_char_full(connectortop,posx,posy,charcolour,STATUS_BACKGROUND);
+        // display mode
+        status_display_set_char('M',posx+14,posy+2,STATUS_COLOR_BLACK,STATUS_COLOR_BACKGROUND);
+        status_display_set_char(PioPortMode+0x30,posx+14,posy+3,STATUS_COLOR_BLACK,STATUS_COLOR_BACKGROUND);
+        //
+        //status_display_set_char(connectortop,posx,posy,charcolour,STATUS_BACKGROUND);
         sprintf(stemp,"0X%2.2X",dataValue);
         // display the hex value of the data
         status_display_show_chars_full(stemp,posx+3,posy+2,STATUS_COLOR_BLACK,STATUS_COLOR_BACKGROUND);
@@ -531,9 +606,36 @@ void displayPIOportAlines(PIOPortSelect PortNo){
         status_display_show_chars_full(binaryvalue,posx+1,posy+3,STATUS_COLOR_BLACK,STATUS_COLOR_BACKGROUND);
         if (PioPortMode==PIOCONTROL){
             // display mask bit
-            // posx has been incremented
-            status_display_show_chars_full("IO Mask",posx+2,posy-2,STATUS_COLOR_BLACK,STATUS_COLOR_BACKGROUND);
+            // posx has not been incremented
+            status_display_show_chars_full("IO Mask",posx+11,posy-1,STATUS_COLOR_BLACK,STATUS_COLOR_BACKGROUND);
             status_display_show_chars_full(binarymask,posx+1,posy-1,STATUS_COLOR_BLACK,STATUS_COLOR_BACKGROUND);
+            if (PIOPorts[PortNo].PortInterruptAllowed==1){
+                // show the interrupt stuff
+                status_display_set_char(PIOPorts[PortNo].Portandor==0?'|':'&',posx+9,posy-2,STATUS_COLOR_BLACK,STATUS_COLOR_BACKGROUND);
+                status_display_set_char(PIOPorts[PortNo].Porthighlow==0?'v':'^',posx+10,posy-2,STATUS_COLOR_BLACK,STATUS_COLOR_BACKGROUND);
+                
+                status_display_show_chars_full("Int Mask",posx+11,posy-2,STATUS_COLOR_BLACK,STATUS_COLOR_BACKGROUND);
+                bitposx = posx + 1 ;  // these markers start in column 2
+                // for each bit in the PIO port
+                mask=0x80; // start with the top most bit
+                for (binarybit=0;binarybit<8;binarybit++){
+                    if (PIOPorts[PortNo].Portintmask & mask) {
+                        // bit is 1
+                        charcolour=STATUS_COLOR_BLACK;
+                        binaryvalue[binarybit]='1';
+                    } else {
+                        charcolour=STATUS_COLOR_RED;
+                        binaryvalue[binarybit]='0';
+                    }
+
+                    status_display_set_char(binaryvalue[binarybit],bitposx,posy-2,charcolour,STATUS_COLOR_BACKGROUND);
+                    bitposx++; // step on 1 character
+                    mask=mask>>1;
+                }    
+                
+            }
+
+
         } else {
             
             if (PIOPorts[PortNo].Portrdy==1) {
@@ -545,18 +647,30 @@ void displayPIOportAlines(PIOPortSelect PortNo){
                 binaryvalue[0]='0';
             }
             status_display_show_chars_full("RDY",posx+10,posy+2,charcolour,STATUS_COLOR_BACKGROUND);
-            status_display_show_char_full(binaryvalue[0],posx+11,posy,charcolour,STATUS_COLOR_BACKGROUND);
-            if (PIOPorts[PortNo].PortInterruptAllowed==1){
-                if (PIOPorts[PortNo].Portint==0) {
-                    // bit is 1
-                    charcolour=STATUS_COLOR_RED;
-                    binaryvalue[0]='1';
-                } else {
-                    charcolour=STATUS_COLOR_BLUE;
-                    binaryvalue[0]='0';
-                }
-                status_display_show_chars_full("Int",posx+10,posy+3,charcolour,STATUS_COLOR_BACKGROUND);
-                status_display_show_char_full(binaryvalue[0],posx+11,posy+5,charcolour,STATUS_COLOR_BACKGROUND);
+            status_display_set_char(binaryvalue[0],posx+11,posy,charcolour,STATUS_COLOR_BACKGROUND);
+        }
+        // now set if we are processing an interrupt
+        // Portint is set when an interrupt has been identified
+        // PortInterruptBeingServiced is > 0 whilst interrupt processing is still going on
+        if (PIOPorts[PortNo].PortInterruptAllowed==1){
+            if (PIOPorts[PortNo].PortInterruptBeingServiced>0){
+                // waiting - interrupt processing is ongoing
+                // so technically IEO will be low blocking the lower priority stuff
+                status_display_show_chars_full("IEO",posx+10,posy+5,STATUS_COLOR_BLUE,STATUS_COLOR_BACKGROUND);
+            }
+            if (PIOPorts[PortNo].Portint==1) {
+                status_display_show_chars_full("INT",posx+10,posy+3,STATUS_COLOR_BLUE,STATUS_COLOR_BACKGROUND);
+/*
+                // bit is 1
+                charcolour=STATUS_COLOR_RED;
+                //binaryvalue[0]='1';
+            } else {
+                charcolour=STATUS_COLOR_BLUE;
+                //binaryvalue[0]='0';
+            }
+            status_display_show_chars_full("Int",posx+10,posy+5,charcolour,STATUS_COLOR_BACKGROUND);
+            // status_display_set_char(binaryvalue[0],posx+11,posy+5,charcolour,STATUS_COLOR_BACKGROUND);
+*/
             }
             
         }
@@ -572,6 +686,12 @@ void displayPIOportAlines(PIOPortSelect PortNo){
  * if the device does not need to raise an interrupt the IEO will be 1
  * if the device want to raise an maskable interrupt it returns 0
  * 
+ * TODO - set up InterruptUnderProcess indicator
+ *  0 means no interrupt in process
+ *  1 means interrupt has been requested
+ *  2 means interrupt acknowleged but waiting for RETI
+ *  IEO will contilinue to be 0 until InterruptUnderProcess is 0
+ * 
  * TODO - need to handle IEI and IEO correctly for multiples
  * and reset stuff when the RETI happens for this request
  * -- currently the ack cleasrs the int 
@@ -580,54 +700,165 @@ void displayPIOportAlines(PIOPortSelect PortNo){
  * and check if interrupt is requested
  * 
  */
-int PIOstatuscheck(int IEI) {
+int PIOstatuscheck(int IEI, int *IEO) {
     
-    int IEO=IEI;
+    int IEOlocal=IEI;
 
-    if (IEI > 0 ) {
+    if (IEOlocal > 0 ) {
         // nothing has more priority in the int chain
-        // check if interrupt has been requested 
+        // check if interrupt state has occurred 
         // Port A first and then Port B
-        if (PIOPorts[PIOPORTA].Portint==0){
-            IEO=0;
-        }
-        if (PIOPorts[PIOPORTB].Portint==0){
-            IEO=0;
+        if (PIOPorts[PIOPORTA].PortInterruptBeingServiced>0){
+            // we already requested an intterupt 
+            // else we are waiting for the RETI
+            IEOlocal=0;  // prevent lower devices from raising an interrupt
+        } else {
+            if (PIOPorts[PIOPORTA].Portint==1){ // we have an interrupt request state
+                if (PIOdebug) {
+                    printf("PIO PortA interrupt raised IEO set to 0\n");
+                }
+                IEOlocal=0;
+                MaskableInterruptRequest++; // add 1 to the say we want to raise a maskable interrupt
+                PIOPorts[PIOPORTA].PortInterruptBeingServiced=1;
+            }
         }
     }
-    
-    return IEO;
+    // now check if PORTA has claimed priority
+    if (IEOlocal > 0 ) {
+        if (PIOPorts[PIOPORTB].PortInterruptBeingServiced>0){ 
+                // we already requested an intterupt 
+                // else we are waiting for the RETI
+                IEOlocal=0;  // prevent lower devices from raising an interrupt
+        } else {
+            if (PIOPorts[PIOPORTB].Portint==1){
+                if (PIOdebug) {
+                    printf("PIO PortB interrupt raised IEO set to 0\n");
+                }
+                IEOlocal=0;
+                MaskableInterruptRequest++; // add 1 to the say we want to raise a maskable interrupt
+                PIOPorts[PIOPORTB].PortInterruptBeingServiced=1;
+            }
+        }
+    }
+    // TODO is this required ?
+    // update status display 
+    //displayPIOportAlines(PIOPORTA);
+    //displayPIOportAlines(PIOPORTB);
+
+    // tell what happened
+    (*IEO)=IEOlocal;
+    return IEOlocal;
    
 }
 /*
  * called when the main cycle in simz80 says it can handle a maskable interrupt
  * 
- * it returns the interrupt vectore address 
+ * ir sets the VectorAddress if it is the device requested interrupt
  * 
- * if the request was made byt this port this will set the int line high 
+ * if the request was made by this port this will reset the "int line"
  * but needs to keep the IEO line low until we do a RETI
- * 
  * 
  * 
  */
 
-WORD PIOInterruptAcknowledge(){
+int PIOInterruptAcknowledge(int IEI, int *IEO){
 
-    WORD retvalue=0;
-    if (PIOPorts[PIOPORTA].Portint==0){
-        PIOPorts[PIOPORTA].Portint=1; // reset interrupt request
-        printf("interrupt acknowledge Port A %4.4X\n", PIOPorts[PIOPORTA].Portintvector);
-        retvalue=PIOPorts[PIOPORTA].Portintvector;
-        displayPIOportAlines(PIOPORTA);
+    int IEOlocal=IEI;
+    int returnvalue=0; // set to 1 if we have set vector 
+
+    if (IEOlocal > 0 ) {
+
+        if (PIOPorts[PIOPORTA].PortInterruptBeingServiced>1){
+            printf("PIO Port A Interrupt Acknowledge bad PortInterruptBeingServiced %u\n",PIOPorts[PIOPORTA].PortInterruptBeingServiced);
+            IEOlocal=0;
+        }
+        if (PIOPorts[PIOPORTA].PortInterruptBeingServiced==1){
+            PIOPorts[PIOPORTA].Portint=0; // reset interrupt request
+            if (PIOdebug) { 
+                printf("PIO Port A - interrupt acknowledge vector %4.4X\n", PIOPorts[PIOPORTA].Portintvector);
+                printf("Int line will be released, but awaiting RETI\n");
+            }
+            VectorAddress=PIOPorts[PIOPORTA].Portintvector;
+            //displayPIOportAlines(PIOPORTA);
+            MaskableInterruptRequest--; // say we have achknowlwdged that request 
+            PIOPorts[PIOPORTA].PortInterruptBeingServiced=2; 
+            IEOlocal=0;
+            returnvalue=1;
+        }
+        
     }
-    if (PIOPorts[PIOPORTB].Portint==0){
-        PIOPorts[PIOPORTB].Portint=1;  // reset interrupt request
-        printf("interrupt acknowledge Port B %4.4X\n", PIOPorts[PIOPORTB].Portintvector);
-        retvalue=PIOPorts[PIOPORTB].Portintvector;
-        displayPIOportAlines(PIOPORTB);
+    if (IEOlocal > 0 ) {
+        if (PIOPorts[PIOPORTB].PortInterruptBeingServiced>1){
+            printf("PIO Port B Interrupt Acknowledge bad PortInterruptBeingServiced %u\n",PIOPorts[PIOPORTB].PortInterruptBeingServiced);
+            IEOlocal=0;
+        }
+        if (PIOPorts[PIOPORTB].PortInterruptBeingServiced==1){
+            PIOPorts[PIOPORTB].Portint=0;  // reset interrupt request
+            if (PIOdebug) { 
+                printf("PIO Port B - interrupt acknowledge vector %4.4X\n", PIOPorts[PIOPORTA].Portintvector);
+                printf("Int line will be released, but awaiting RETI\n");
+            }
+            VectorAddress=PIOPorts[PIOPORTB].Portintvector;
+            //displayPIOportAlines(PIOPORTB);
+            MaskableInterruptRequest--; // say we have achknowlwdged that request 
+            PIOPorts[PIOPORTB].PortInterruptBeingServiced=2; 
+            IEOlocal=0;
+            returnvalue=1;
+        }
     }
-    // if no interrupt requested 
-    return retvalue;
+    // update status display 
+    displayPIOportAlines(PIOPORTA);
+    displayPIOportAlines(PIOPORTB);
+
+
+    // tell what happened
+    (*IEO)=IEOlocal;
+    return returnvalue;
+    
+}
+
+
+/*
+ * called when the main cycle in simz80 sees an RETI command
+ * 
+ * This will set the ports PortInterruptBeingServiced tp 0 
+ * if the IEI is high
+ * 
+ * This will result in the IEO being set to 1 when the next status routine is called
+ * 
+ */
+
+void PIOCheckRETI(int IEI, int *IEO){
+
+    int IEOlocal=IEI;
+
+    if (IEOlocal > 0 ) {
+
+        if (PIOPorts[PIOPORTA].PortInterruptBeingServiced>1){
+            PIOPorts[PIOPORTA].PortInterruptBeingServiced=0;
+            IEOlocal=0; // we are still in the process of completing the interrup service
+            if (PIOdebug) { 
+                printf("PIO PORTA - RETI identified  - IEO will become 1\n");
+            }
+            
+        }
+        
+    }
+    if (IEOlocal > 0 ) {
+        if (PIOPorts[PIOPORTB].PortInterruptBeingServiced>1){
+            PIOPorts[PIOPORTB].PortInterruptBeingServiced=0;
+            IEOlocal=0; // we are still in the process of completing the interrup service
+            if (PIOdebug) { 
+                printf("PIO PORTB - RETI identified - IEO will become 1\n");
+            }
+        }
+    }
+    // update status display 
+    displayPIOportAlines(PIOPORTA);
+    displayPIOportAlines(PIOPORTB);
+
+    // tell what happened
+    (*IEO)=IEOlocal;
     
 }
 
@@ -651,7 +882,9 @@ WORD PIOInterruptAcknowledge(){
  unsigned char PIODeviceReadPort(PIOPortSelect PortNo){
 
 
-    printf("Device read Port  %c value %2.2X \n", PortNo==PIOPORTA ? 'A':'B',PIOPorts[PortNo].Portdata);
+    if (PIOdebug) { 
+        printf("Device read Port  %c value %2.2X \n", PortNo==PIOPORTA ? 'A':'B',PIOPorts[PortNo].Portdata);
+    }
     unsigned char retvalue=0;
     // on read we should also strobe the port line to say byte read
     // this may generate an int and set rdy line low 
@@ -667,7 +900,7 @@ WORD PIOInterruptAcknowledge(){
         // and set the ready line to low
         PIOPorts[PortNo].Portrdy=0;
         if (PIOPorts[PortNo].PortInterruptAllowed){
-            PIOPorts[PortNo].Portint=0;  // activate an interrupt
+            PIOPorts[PortNo].Portint=1;  // activate an interrupt
         }
         retvalue=PIOPorts[PortNo].Portdata;
         break;
@@ -716,7 +949,7 @@ unsigned char PIODeviceWritePort(PIOPortSelect PortNo, unsigned char value){
         // and set the rady flag to 0
         PIOPorts[PortNo].Portrdy=0;
         if (PIOPorts[PortNo].PortInterruptAllowed){
-            PIOPorts[PortNo].Portint=0;  // activate an interrupt
+            PIOPorts[PortNo].Portint=1;  // activate an interrupt request 
         }
         PIOPorts[PortNo].Portdata=value;
         break;
@@ -755,7 +988,9 @@ unsigned char PIODeviceWritePort(PIOPortSelect PortNo, unsigned char value){
         // not set do nothing
         break;
     }
-    printf("Device write Port  %c value %2.2X port now %2.2X\n", PortNo==PIOPORTA ? 'A':'B',value, PIOPorts[PortNo].Portdata);
+    if (PIOdebug) { 
+        printf("Device write Port  %c value %2.2X port now %2.2X\n", PortNo==PIOPORTA ? 'A':'B',value, PIOPorts[PortNo].Portdata);
+    }
     displayPIOportAlines(PortNo);
 
     return value;
@@ -767,7 +1002,10 @@ unsigned char PIODeviceWritePort(PIOPortSelect PortNo, unsigned char value){
  */
 unsigned char PIOReadReadyLine(PIOPortSelect PortNo){
 
-    printf("Device read Port %c ready line %2.2X \n", PortNo==PIOPORTA ? 'A':'B',PIOPorts[PortNo].Portrdy);
+    if (PIOdebug) { 
+
+        printf("Device read Port %c ready line %2.2X \n", PortNo==PIOPORTA ? 'A':'B',PIOPorts[PortNo].Portrdy);
+    }
  
  
     return PIOPorts[PortNo].Portrdy;
@@ -788,13 +1026,13 @@ unsigned char PIOStrobeLine(PIOPortSelect PortNo){
         case PIOIN:
             PIOPorts[PortNo].Portrdy=0;
             if (PIOPorts[PortNo].PortInterruptAllowed){
-                PIOPorts[PortNo].Portint=0;  // activate an interrupt
+                PIOPorts[PortNo].Portint=1;  // activate an interrupt
             }
             break;
         case PIOOUT:
             PIOPorts[PortNo].Portrdy=0;
             if (PIOPorts[PortNo].PortInterruptAllowed){
-                PIOPorts[PortNo].Portint=0;  // activate an interrupt
+                PIOPorts[PortNo].Portint=1;  // activate an interrupt
             }
             break;
         case PIOBIDIRECTIONAL:
@@ -812,7 +1050,10 @@ unsigned char PIOStrobeLine(PIOPortSelect PortNo){
             break;
         }
         
-    printf("Device strobe Port  %c - port int %d\n", PortNo==PIOPORTA ? 'A':'B', PIOPorts[PortNo].Portint);
+    if (PIOdebug) { 
+        printf("Device strobe Port%c - port int %d\n", PortNo==PIOPORTA ? 'A':'B', PIOPorts[PortNo].Portint);
+    }
     return 0;
 }
 
+// end of code
