@@ -14,7 +14,8 @@
 #include <string.h>
 
 // set to 1 to display clock card processing
-int chsclockcarddebug = CHSCLOCKCARDDEBUG; 
+// value set in map80nascom.c
+//int chsclockcarddebug = CHSCLOCKCARDDEBUG; 
                                   
 static int hoursmode=CRTC_HOURS_MODE_24H;             // set to 24 hours mode
 static int daysmode=0;                                // set using CRTC_DAYS_MODE_LEAP_YEAR if a leap year     

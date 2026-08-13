@@ -48,6 +48,9 @@ extern uint8_t nascom_font_raw[];
 extern int nascomdisplayxpos;
 extern int nascomdisplayypos;
 
+// to show or hide the nascom window
+extern void nascom_show_window();
+extern void nascom_hide_window();
 
 // end of file
 

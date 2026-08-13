@@ -1,0 +1,77 @@
+# File testPIOint.asm
+0000			; --------------------------------------------------------- 
+0000			; I/O port equates 
+0000			; --------------------------------------------------------- 
+0000			PIOA_DATA:   EQU 04H 
+0000			PIOB_DATA:   EQU 05H 
+0000			PIOA_CTRL:   EQU 06H 
+0000			PIOB_CTRL:   EQU 07H 
+0000			 
+0000			; --------------------------------------------------------- 
+0000			; IM2 vector table page/byte 
+0000			; --------------------------------------------------------- 
+0000			VTAB_HI:     EQU 10H          ; I register = 10H -> table lives at 1000H 
+0000			VTAB_LO:     EQU 00H          ; vector byte given to PIO (D0 must = 0) 
+0000			VTAB_ADDR:   EQU 1000H        ; address of the pointer table entry 
+0000			 
+0000			; --------------------------------------------------------- 
+0000			; Main program 
+0000			; --------------------------------------------------------- 
+0000			            ORG 0C80H 
+0c80 f3			START:      DI 
+0c81			 
+0c81			            ; Build the IM2 pointer table entry in code, not with DW 
+0c81 21 9e 0c		            LD   HL, ISR         ; HL = address of service routine 
+0c84 22 00 10		            LD   (VTAB_ADDR), HL ; store it at 1000H/1001H 
+0c87			                                  ; (L -> 1000H, H -> 1001H) 
+0c87			 
+0c87			            ; CPU -> Interrupt Mode 2, I = vector table page 
+0c87 3e 10		            LD   A, VTAB_HI 
+0c89 ed 47		            LD   I, A 
+0c8b ed 5e		            IM   2 
+0c8d			 
+0c8d			            ; PIO Port A Mode Control Word: Mode 1 = Input 
+0c8d 3e 4f		            LD   A, 01001111B 
+0c8f d3 06		            OUT  (PIOA_CTRL), A 
+0c91			 
+0c91			            ; Interrupt vector byte (D0 = 0) 
+0c91 3e 00		            LD   A, VTAB_LO 
+0c93 d3 06		            OUT  (PIOA_CTRL), A 
+0c95			 
+0c95			            ; Interrupt Control Word: enable INT, no mask word follows 
+0c95 3e 87		            LD   A, 10000111B 
+0c97 d3 06		            OUT  (PIOA_CTRL), A 
+0c99			 
+0c99 fb			            EI 
+0c9a 76			MAIN:       HALT ; will abort the emulator 
+0c9b c3 9a 0c		            JP   MAIN 
+0c9e			 
+0c9e			; --------------------------------------------------------- 
+0c9e			; Interrupt Service Routine (follows main code) 
+0c9e			; --------------------------------------------------------- 
+0c9e f5			ISR:        PUSH AF 
+0c9f c5			            PUSH BC 
+0ca0 d5			            PUSH DE 
+0ca1 e5			            PUSH HL 
+0ca2			 
+0ca2 db 04		            IN   A, (PIOA_DATA) 
+0ca4 5f			            LD   E, A 
+0ca5			 
+0ca5 ef			            RST  28H 
+0ca6 .. 00		            DB   'PIO INTERRUPT - PORT A = ',0 
+0cc0			 
+0cc0 7b			            LD   A, E 
+0cc1 df			            RST  18H 
+0cc2 68			            DB   068H            ; B2HEX 
+0cc3			 
+0cc3 df			            RST  18H 
+0cc4 6a			            DB   06AH            ; CRLF 
+0cc5			 
+0cc5 e1			            POP  HL 
+0cc6 d1			            POP  DE 
+0cc7 c1			            POP  BC 
+0cc8 f1			            POP  AF 
+0cc9 fb			            EI 
+0cca ed 4d		            RETI 
+# End of file testPIOint.asm
+0ccc

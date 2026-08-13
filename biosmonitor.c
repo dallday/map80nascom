@@ -45,7 +45,8 @@
 int NumberofArgs=0;
 int Args[10];
 
-// edit RAM 
+// edit the memory stores in the rampagetable 
+// works like the Nascom M command
 int editMemory(void){
     
     int bufferposition=0;
@@ -259,12 +260,7 @@ void DoDisassemble(void){
         EndAddress = Args[1];
     }
     do {
-//        disdata[0] = RAM(StartAddress);
-//        disdata[1] = RAM(StartAddress+1);
-//        disdata[2] = RAM(StartAddress+2);
-//        disdata[3] = RAM(StartAddress+3);
-//        disdata[4] = 0x00;
-        //lencmd=disassembleline(StartAddress,disdata,disstr);
+
         lencmd=disassembleprogram(StartAddress,stdout,0,0,0xFFFF,0,0,0,0,0);
         //fprintf(stdout,"%s\n",disstr);
         StartAddress+=lencmd;
@@ -279,6 +275,9 @@ void DoDisassemble(void){
 int MAP80nascomMonitor(char * FirstCommand){
 
 // process user input
+    FASTWORK Retval;
+    int usebiosmonitorDefault=usebiosmonitor; // stored here so the shift F4 can trigger bios monitor
+    // TODO may be a better way ???
     int doFirstCommand=0;
     char commandstr[101]="";
     char * ReturnPointer;
@@ -306,8 +305,8 @@ int MAP80nascomMonitor(char * FirstCommand){
             else {
                 // used this to check that the returned pointer was the same address as my buffer
                 // printf("ReturnPointer %p and cwd %p \n",ReturnPointer,commandstr);
-                 printf( "\nYou entered: ");
-                 puts( commandstr );
+//                 printf( "\nYou entered: ");
+//                 puts( commandstr );
             }
             //    fgets( commandstr, 100, stdin );
         }
@@ -371,17 +370,18 @@ int MAP80nascomMonitor(char * FirstCommand){
                         puts("The following keys are supported:\n"
                              "\n"
                              "* F1 - Triggers an NMI \n"
-                             "* F2 - Turns on/off disassembler trace\n"
-                             "* F3 - resets the position of the serial input \n"
-                             "* F4 - exits the emulator\n"
-                             "* F5 - toggles between stupidly fast and \"normal\" speed\n"
+                             "* F2 - does N4 style warm reset of the emulated Nascom\n"
+                             "* F3 - resets the emulated Nascom\n"
+                             "* F4 - exits the emulator (press shift to exit to Bios Monitor)\n"
+                             "* F5 - resets the position of the serial input \n"
                              "* F6 - force serial input on\n"
-                             "* F9 - resets the emulated Nascom\n"
-                             "* F10 - toggles between \"raw\" and \"natural\" keyboard emulation\n"
-                             "* END - leaves a nascom screen dump in `screendump`\n"
+                             "* F7 - Turns on/off disassembler trace\n"
+                             "* F8 - toggles between stupidly fast and \"normal\" speed\n"
+                             "* F9 - toggles between \"raw\" and \"natural\" keyboard emulation\n"
+                             "* END - leaves a nascom screen dump in `screendump` \n"
                              "\n");
-                            
-                        FASTWORK Retval=simz80(pc, t_sim_delay, sim_delay);
+                           
+                        Retval=simz80(pc, t_sim_delay, sim_delay,0);
 
                         // On return from simulator, refresh the screen one last
                         // time, in order to see any final output eg before a HALT
@@ -392,25 +392,48 @@ int MAP80nascomMonitor(char * FirstCommand){
                         if (usebiosmonitor==0){
                             return 0;
                         }
-
+                        usebiosmonitor= usebiosmonitorDefault; // reset bios monitor status after shift f4
                         fprintf(stderr,"Emulator stopped at %4.4X \n",Retval&0xFFFF);
                         fprintf(stdout,"Ensure console window is selected \n");
                         fprintf(stdout,"Then enter the x commands to exit the Bios process\n");
                         fprintf(stdout,"or ? for help\n");
                         
                         break;
+                    case 'S': 
+                        // single step rom bios monitor
+                        // displays and executes the next opcode ?
+                        {   int oldtraceon=traceon;
+                            // change program counter
+                            if (NumberofArgs>0){
+                                pc=Args[0]&0xFFFF;
+                            }
+                           // single step
+                            traceon = 2;
+                            Retval=simz80(pc, t_sim_delay, sim_delay,1);
+                            // On return from simulator, refresh the screen one last
+                            // time, in order to see any final output eg before a HALT
+                            sim_delay();
+                            traceon=oldtraceon;
+                        }
+                        break;
                         
                     case 'X':
                         return 0;
                         break;
+                    case 'Z':
+                        displayRamTable();
+                        break;
                     case '?':
                         printf("The bios program commands are\n"
-                               "D xxxx YYYY disassemble code address xxxx to yyyy\n"
-                               "E xxxx to start Z80sim from address xxxx \n"
-                               "O xx yy output value yy on 'port' xx \n"
-                               "Q xx    query input from 'port' xx \n"
-                               "T xxxx yyyy  output memory from address xxxx to yyyy\n"
-                               "X to exit\n"
+                               " D xxxx YYYY  disassemble code address xxxx to yyyy \n"
+                               " E xxxx       to start Z80sim from address xxxx \n"
+                               " O xx yy      output value yy on 'port' xx \n"
+                               " Q xx         query input from 'port' xx \n"
+                               " R            toggles the disassemble trace on/off \n"
+                               " S xxxx       to single step from address xxxx or last stop address. \n"
+                               " T xxxx yyyy  output memory from address xxxx to yyyy \n"
+                               " X            to exit \n"
+                               " Z            to display the current memory mapping\n"
                                );
                         break;
                     default:

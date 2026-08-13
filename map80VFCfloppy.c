@@ -30,9 +30,9 @@
 #include "map80nascom.h"
 #include "statusdisplay.h"
 
-// global variables - initial values set in options.
-int vfcfloppydebug=VFCFLOPPYDEBUG;
-int vfcfloppydisplaysectors=VFCFLOPPYDISPLAYSECTORS;
+// global variables - initial values set in map80nascom.c 
+//int vfcfloppydebug=VFCFLOPPYDEBUG;
+//int vfcfloppydisplaysectors=VFCFLOPPYDISPLAYSECTORS;
 
 // status details used to set status register and status port return values
 // ports 0xE0 and 0xE4
@@ -149,7 +149,7 @@ static void displayfloppystatus(void){
             drivestatus=0xB8;
         }
         strBuffer[0]=drivestatus;
-        status_display_show_chars_full(strBuffer,2,(driveno*2)+1,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_RED,STATUS_BLACK);
+        status_display_show_chars_full(strBuffer,2,(driveno*2)+1,STATUS_COLOR_RED,STATUS_COLOR_BACKGROUND);
         
     }
    
@@ -161,7 +161,7 @@ static void displayfloppyposition(){
     
     if ((floppyActiveDrive>-1) && (floppyActiveDrive<4)){
         sprintf(strBuffer,"Track %2d Head %d Sector %2d      ",floppyDrives[floppyActiveDrive].track,floppySide,floppyReadSector()); 
-        status_display_show_chars_full(strBuffer,5,(floppyActiveDrive*2)+2,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_YELLOW,STATUS_BLACK);
+        status_display_show_chars_full(strBuffer,5,(floppyActiveDrive*2)+2,STATUS_COLOR_YELLOW,STATUS_COLOR_BACKGROUND);
         //printf("Floppy %d %s\n",floppyActiveDrive,strBuffer);
     }
    
@@ -176,7 +176,7 @@ void displayfloppydetails(){
     char drivestatus=0;
     char filename[100];
     int linenumber=1;
-    status_display_show_chars_full("Drives",0,0,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_WHITE,STATUS_BLACK);
+    status_display_show_chars_full("Drives",0,0,STATUS_COLOR_BLACK,STATUS_COLOR_BACKGROUND);
     for (int driveno=0;driveno<4;driveno++){
         if (floppyDrives[driveno].fileNamePointer == NULL ){
             drivestatus=0xB8;
@@ -201,11 +201,11 @@ void displayfloppydetails(){
         strBuffer[0]=driveno+0x30;
         strBuffer[1]=' ';
         strBuffer[2]=0;
-        status_display_show_chars_full(strBuffer,0,linenumber,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_ORANGE,STATUS_BLACK);
+        status_display_show_chars_full(strBuffer,0,linenumber,STATUS_COLOR_ORANGE,STATUS_COLOR_BACKGROUND);
         strBuffer[0]=drivestatus;
-        status_display_show_chars_full(strBuffer,2,linenumber,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_RED,STATUS_BLACK);
+        status_display_show_chars_full(strBuffer,2,linenumber,STATUS_COLOR_RED,STATUS_COLOR_BACKGROUND);
         // sprintf(strBuffer,"%d "%c %s ", driveno, drivestatus, filename ); 
-        status_display_show_chars_full(filename,4,linenumber,STATUS_DISPLAYSCALEX,STATUS_DISPLAYSCALEY,STATUS_YELLOW,STATUS_BLACK);
+        status_display_show_chars_full(filename,4,linenumber,STATUS_COLOR_BLACK,STATUS_COLOR_BACKGROUND);
         linenumber+=2;
         
     }
@@ -325,7 +325,7 @@ int floppyMountDisk(unsigned int drive, char *configfilename){
         //fprintf(stdout, "Mount Floppy drive - config file '%s', line %d is '%s'. \n", configfilename,filelinenumber,buffer);
         filelinenumber++;
         if (strlen(buffer) >249 ){
-            fprintf(stdout, "Mount Floppy drive - floppy config file '%s', line %d is too long - ignoring. \n", configfilename,filelinenumber);
+            fprintf(stdout, "Mount Floppy drive - config file '%s', line %d is too long - ignoring. \n", configfilename,filelinenumber);
             // skip to end of line in the file
             ch = buffer[249];
             while (ch != -1 && ch != '\n'){
@@ -483,7 +483,7 @@ int floppyMountDisk(unsigned int drive, char *configfilename){
         else if(strcmp(keyword,"write-protect")==0){
             // set disc write protected
             floppyDrives[setdrive].writeProtect = ((paramdata[0] == 'Y') || (paramdata[0] == 'y'));
-            printf("Floppy write protect %d\n",floppyDrives[setdrive].writeProtect);
+            // printf("Floppy write protect %d\n",floppyDrives[setdrive].writeProtect);
         }
         else if(strcmp(keyword,"file-layout")==0){
             // not using this keyword
@@ -527,13 +527,13 @@ int floppyMountDisk(unsigned int drive, char *configfilename){
 
         }
         else {
-            fprintf(stdout,"Mount Floppy drive - config line %d keyword='%s' unknown - ignored \n",filelinenumber, keyword);
+            fprintf(stdout,"Mount Floppy drive - config file '%s', config line %d keyword='%s' unknown - ignored \n",configfilename,filelinenumber, keyword);
         }
 
         if (notimplemented==1){
             // da apr 2026 changed to vfcfloppydebug
             if (vfcfloppydebug){
-                printf("Mount Floppy drive - config line %d keyword='%s' not yet implemented\n",filelinenumber, keyword);
+                printf("Mount Floppy drive - config file '%s', config line %d keyword='%s' not yet implemented\n",configfilename,filelinenumber, keyword);
             }
         }
     }
@@ -552,12 +552,16 @@ int floppyMountDisk(unsigned int drive, char *configfilename){
         }
     }
 
-    printf("Mount Floppy drive %d, config file '%s', image file '%s' \n",
+    printf("Mount Floppy drive %d, config file '%s'\n\t image file '%s' \n",
                 setdrive,configfilename,(floppyDrives[setdrive].fileNamePointer==NULL? "null":floppyDrives[setdrive].fileNamePointer ));
     if (verbose){
 
         printdiscimageproperties(setdrive);
         
+    } else {
+        if (floppyDrives[setdrive].writeProtect){
+            printf("\tDrive mounted Read only\n");
+        }
     }
 
     return 0;
@@ -567,6 +571,9 @@ int floppyMountDisk(unsigned int drive, char *configfilename){
 
 // handle all calls to the MAP80 VFC output ports
 void outPortFloppy(unsigned int port, unsigned int value){
+    
+ 
+    
 
     // da apr 2026 changed to vfcfloppydebug
     if (vfcfloppydebug){
@@ -609,14 +616,17 @@ void outPortFloppy(unsigned int port, unsigned int value){
 
 void printdiscimageproperties(int driveNumber){
 
-    printf("Image details for drive  %2.2X \n",driveNumber);
-    printf("   Image file [%s]\n",floppyDrives[driveNumber].fileNamePointer);
-    printf("   Number of Heads   [%d]\n",floppyDrives[driveNumber].numberOfHeads);
-    printf("   Number of tracks  [%d]\n",floppyDrives[driveNumber].numberOfTracks);
-    printf("   Number of Sectors [%d]\n",floppyDrives[driveNumber].numberOfSectors);
-    printf("   First Sector      [%d]\n",floppyDrives[driveNumber].firstSectorNumber);
-    printf("   Interleaved       [%d]\n",floppyDrives[driveNumber].interleaved);
-    printf("   Size of Sector    [%d]\n",floppyDrives[driveNumber].sizeOfSector);
+    printf("  Image details for drive  %2.2X \n",driveNumber);
+    printf("\tImage file [%s]\n",floppyDrives[driveNumber].fileNamePointer);
+    printf("\tNumber of Heads   [%d]\n",floppyDrives[driveNumber].numberOfHeads);
+    printf("\tNumber of tracks  [%d]\n",floppyDrives[driveNumber].numberOfTracks);
+    printf("\tNumber of Sectors [%d]\n",floppyDrives[driveNumber].numberOfSectors);
+    printf("\tFirst Sector      [%d]\n",floppyDrives[driveNumber].firstSectorNumber);
+    printf("\tInterleaved       [%d]\n",floppyDrives[driveNumber].interleaved);
+    printf("\tSize of Sector    [%d]\n",floppyDrives[driveNumber].sizeOfSector);
+    if (floppyDrives[driveNumber].writeProtect){
+        printf("\tDrive mounted Read only\n");
+    }
 
 
 /*
@@ -636,6 +646,8 @@ void printdiscimageproperties(int driveNumber){
 int inPortFloppy(unsigned int port){
 
 int retval=0xFF;
+
+
 
     switch (port) {
     case 0xE0:
@@ -1563,7 +1575,7 @@ static int floppyReadDrivePort(){
 
     int returnval = floppyInteruptRequest + (invertedfloppyNotReady << 1) + (floppyDataRequest << 7 );
 
-        
+       
     if (vfcfloppydebug){
         if ( lastreturn != returnval){
             if (Numbercalls>1){
@@ -1890,6 +1902,7 @@ static void showFloppySector(){
                  floppyActiveDrive,
                  floppyDrives[floppyActiveDrive].track);
     }
+    
     displayBuffer( floppyBuffer, floppyBufferUsed );
 }
 

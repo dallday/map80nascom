@@ -97,11 +97,28 @@ void nascom_display_change_size(int sizefactor){
     
 }
 
+// set the position for nascom display
 void nascom_display_position(int x, int y){
 
     SDL_SetWindowPosition(screen, x, y);
 
 }
+
+
+void nascom_show_window(){
+    // show the nascom window
+    SDL_ShowWindow(screen);
+    // ensure it has focus
+    SDL_SetWindowInputFocus(screen);
+
+}
+
+void nascom_hide_window(){
+    // hide the nascom window
+    SDL_HideWindow(screen);
+
+}
+
 
 // get the current size of the nascom window on the screen
 // updates the integers pointed to by w and h
@@ -115,6 +132,7 @@ void nascom_GetWindowSize(int* w, int* h){
         *h=NASCOM_DISPLAY_HEIGHT;
     }
 }
+
 
 
 /* Would be better to do the updating on demand and the push here */
@@ -233,7 +251,7 @@ static void RenderItem(int idx, int xp, int yp)
                 for (int scalexetc = 0 ; scalexetc < NASCOM_DISPLAYSCALEX ; scalexetc++ ){
                     // not sure why lots of Fs but
                     // it's a colour  0xFFFF0000 is red
-                    *r++ = (c & (1 << x)) ? STATUS_GREEN : 0;
+                    *r++ = (c & (1 << x)) ? STATUS_COLOR_GREEN : 0;
                 }
             }
             // next line we have moved on 8 bytes on the display depending upon the scale
@@ -242,6 +260,8 @@ static void RenderItem(int idx, int xp, int yp)
         p++;   // next font line
 	}
 }
+
+
 
 
 

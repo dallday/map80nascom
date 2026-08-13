@@ -99,6 +99,7 @@ extern int SDMountDisk(char * filename); // call to mount SDcard image
 void outPortSD(unsigned int port, unsigned int wdata);
 int inPortSD(unsigned int port);
 
+extern int verbose;      // set to true to display messages
 
 #endif
 

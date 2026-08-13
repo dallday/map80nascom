@@ -53,13 +53,28 @@ Line 2234 - the OUTD command -same issue as with OUTI
 
  * 
  * The cb_prefix bit commands were saving the value back again even when it was only a bit test
+ *
+ * June 2026
+ *  the NMI routine should not clear IFF but only bit 0 of IFF
+ *  bit 1 is the "copy" of bit 0 to be copied back with a RETN
  * 
- * */
+ *  EI sets IFF to 3
+ *  DI sets IFF to 0
+ * 
+ *  
+ * 
+ * 
+ */
 
 #include <stdlib.h>
 #include "simz80.h"
 #include "disassemble.h"
 #include "cpmswitch.h"
+#include "sdlevents.h"
+#include "pio.h"
+
+
+
 
 // this is used to set the parity bit in the flags.
 static const unsigned char partab[256] = {
@@ -83,9 +98,9 @@ static const unsigned char partab[256] = {
 
 #define parity(x)	partab[(x)&0xff]
 
-#ifdef DEBUG
-volatile int stopsim;
-#endif
+//#ifdef DEBUG
+//volatile int stopsim;
+//#endif
 
 #define POP(x)	do {							\
 	FASTREG y = RAM(SP); SP++;					\
@@ -706,8 +721,25 @@ dfd_prefix(FASTREG IXY)
     return(IXY);
 }
 
+/*
+ * routine to run the z80 emulator
+ * PC - is the current computer Program counter
+ * int count is how often to call the refresh function
+ * int (*fnc)() - is a function to call to refresh screens keyboards etc.,
+ *  checks for requests to reset or exit emulator
+ * int  numberInstruction - number of Z80 instructions to do before returning
+ *         set to 0 to go until exit requested
+ *
+ * ***************************************************************
+ * ***************************************************************
+ * ***************************************************************
+ * *******************to help find it in listing *****************
+ * ***************************************************************
+ * 
+  */
+
 FASTWORK
-simz80(FASTREG PC, int count, int (*fnc)())
+simz80(FASTREG PC, int count, int (*fnc)(),int numberInstructions)
 {
 
     FASTREG AF = af[af_sel];
@@ -718,11 +750,12 @@ simz80(FASTREG PC, int count, int (*fnc)())
     FASTWORK temp, acu, sum, cbits;
     FASTWORK op;
     int n = count;
-#ifdef DEBUG
-    while (!stopsim) {
-#else
-    while (1) {
-#endif
+    int numberInstructionsLocal = numberInstructions;
+//#ifdef DEBUG
+//  while (!stopsim) {
+//#else
+  while (1) {
+//#endif
 
       // debug - displays current instruction and registers 
     if (traceon==1){
@@ -754,22 +787,90 @@ simz80(FASTREG PC, int count, int (*fnc)())
           PUSH (PC);
           // set interupt address
           PC = 0x66;
-          IFF = 0;
+          IFF &= 0x02; // set IFF to only clear bit 0 leave bit 1 alone
           NMI_flag = 0; // reset NMI
       }
+      // check status of devices for interrupt etc.,
+      
+      InterruptCheckProcess();
+      
+      //  now check if we have an interrupt request 
+      
+      if (MaskableInterruptRequest<0){  // check if something has gone wqrong
+        printf("MaskableInterruptRequest is below 0  (%d) - resetting to 0",MaskableInterruptRequest);
+        MaskableInterruptRequest=0;
+      }
+      
+      if (MaskableInterruptRequest>0){  // check if someone requested an interrupt
+        if (IFF & 0x01){
+                  // IFF flag is set so we can do the maskable interrupt
+                  // we need to acknowledge the intrerrupt 
+                  // and depending upon the interrupt mode get stuff from the device 
+                  // TODO how ??
+
+            int IEI=1; // reset interrupt daisy chain
+            int IEO=1;
+            int statusreply=0;
+            
+            statusreply= PIOInterruptAcknowledge(IEI, &IEO);
+            if (statusreply==0){
+              IEI=IEO;
+              // should now call each devices statuscheck routines
+              // intil one says yep ??
+              printf("error - did interrupt acknowledge but got no vectore address ");
+            }
+            if (statusreply>0){
+                // hopefully we will get a reply from someome :)
+                switch(interruptMode){
+                case 2:
+                    // save current address
+                    PUSH (PC);
+                    // add the returned address to I register 
+                    VectorAddress=(ir&0xFF00) | VectorAddress; 
+                    PC=GetWORD(VectorAddress);
+                    IFF=0; // disable maskable interrupt
+                    break;
+                case 1:
+                    // save current address
+                    PUSH (PC);
+                    // set interupt address
+                    PC=0x38;
+                    IFF=0;
+                    break;
+                default:
+                    // type 0 is perform op code ???
+                    // not for the PIO 
+                    // we cannot do that :(
+                }
+            }
+        }  
+
+        
+      }
+
+
 
       if (--n == 0) {	// if n has reached 0 then call callback function
             n = count;	// reset count
 //            printf("count %d\n",count);
+            SAVE_STATE(); // save the registers
             int r = (*fnc)();	// call callback function -
     				// handles screens and F type keyboard entries
-
+            // check the return value
             if (r == -1)		// if it returned -1
                 break;		// stop the emulator
-            else if (r != 0)	// if not 0
-                PC = 0;		// reset the emulator
+            else if (r != 0){	// if not 0 - can have multiple value 1=reset 2=warmreset
+                resetEmulator(r==2); // should give 1 for warm and 0 for cold 
+                PC = 0;		// reset the emulator  - PC is a parameter to this code ??
+            }
       }
-
+  
+      // *********************
+      // delay for EI is handled at end 
+      // The JumpOnResetaddress and disable of SBROM handled at end ???
+    
+        // HALT will step the PC counter back 1 so it keeps executing it 
+        
     switch(++PC,RAM(PC-1)) {
 	case 0x00:			/* NOP */
 		break;
@@ -1275,9 +1376,20 @@ simz80(FASTREG PC, int count, int (*fnc)())
 		PutBYTE(HL, lreg(HL));
 		break;
 	case 0x76:			/* HALT */
-		SAVE_STATE();
-	    fprintf(stderr,"Halt instructions at address %04X \n",PC);
-		return PC&0xffff;
+        // TODO - check if this is the correct way to do HALT
+        PC--; // step back so HALT happens again
+              // the PC value is local to the simz80 
+              // at various points it saves PC to global variable pc
+              // we check during display refresh to see if we are at a HALT byte
+              // 
+              // not sure if that is correct as it should escape the HALT if an interrupt occurs 
+             
+
+        break;
+//		SAVE_STATE();
+//	    fprintf(stderr,"Halt instructions at address %04X \n",PC);
+//        usebiosmonitor=1; // ensure we drop into bios monitor
+//		return PC&0xffff;
 	case 0x77:			/* LD (HL),A */
 		PutBYTE(HL, hreg(AF));
 		break;
@@ -2035,11 +2147,19 @@ simz80(FASTREG PC, int count, int (*fnc)())
 				2 | (temp != 0);
 			break;
 		case 0x45:			/* RETN */
+            // DA - this should set IFF based onnthe 2 bit 
+            //    it is ORing IFF with itself shited 1 bit to the right 
+            // which will move bit 1 to bit 0 
+            // so 0 will still be zero, 2 will become 3, 
+            //  these 2 should not happen :- 3 will stay 3 and 1 will stay 1
+            // as IFF bits 0 and 1 will be the same excprt when an NMI occurs
+            // when bit 1 is holding the value it wa inn bit 0
 			IFF |= IFF >> 1;
 			POP(PC);
 			break;
 		case 0x46:			/* IM 0 */
 			/* interrupt mode 0 */
+            interruptMode=0;
 			break;
 		case 0x47:			/* LD I,A */
 			ir = (ir & 255) | (AF & ~255);
@@ -2071,7 +2191,9 @@ simz80(FASTREG PC, int count, int (*fnc)())
 			PC += 2;
 			break;
 		case 0x4D:			/* RETI */
-			IFF |= IFF >> 1;
+            // DA 2026 tell devices RETI being processed
+            RETIProcess();
+			IFF |= IFF >> 1;    // copies bit1 to bit 0
 			POP(PC);
 			break;
 		case 0x4F:			/* LD R,A */
@@ -2105,6 +2227,7 @@ simz80(FASTREG PC, int count, int (*fnc)())
 			break;
 		case 0x56:			/* IM 1 */
 			/* interrupt mode 1 */
+            interruptMode=1;
 			break;
 		case 0x57:			/* LD A,I */
 			AF = (AF & 0x29) | (ir & ~255) | ((ir >> 8) & 0x80) | (((ir & ~255) == 0) << 6) | ((IFF & 2) << 1);
@@ -2137,6 +2260,7 @@ simz80(FASTREG PC, int count, int (*fnc)())
 			break;
 		case 0x5E:			/* IM 2 */
 			/* interrupt mode 2 */
+            interruptMode=2;
 			break;
 		case 0x5F:			/* LD A,R */
 			AF = (AF & 0x29) | ((ir & 255) << 8) | (ir & 0x80) | (((ir & 255) == 0) << 6) | ((IFF & 2) << 1);
@@ -2456,7 +2580,7 @@ simz80(FASTREG PC, int count, int (*fnc)())
 		JPC(!TSTFLAG(S));
 		break;
 	case 0xF3:			/* DI */
-		IFF = 0;
+		IFF = 0;   // clears both IFF1 and IFF2
 		break;
 	case 0xF4:			/* CALL P,nnnn */
 		CALLC(!TSTFLAG(S));
@@ -2482,7 +2606,9 @@ simz80(FASTREG PC, int count, int (*fnc)())
 		JPC(TSTFLAG(S));
 		break;
 	case 0xFB:			/* EI */
-		IFF = 3;
+        // need to delay actual activation until the end of the next instruction
+        delayMaskableInterrupt=3;
+		IFF = 2;  // just set IFF2
 		break;
 	case 0xFC:			/* CALL M,nnnn */
 		CALLC(TSTFLAG(S));
@@ -2507,8 +2633,91 @@ simz80(FASTREG PC, int count, int (*fnc)())
 	case 0xFF:			/* RST 38H */
 		PUSH(PC); PC = 0x38;
     }
+    // last bit of the loop
+    JumpOnResetaddressfixed=0; // reset jump on reset address
+    // check if we can disable SBROM
+    if(calldisableSBROM>0){
+        // substract 1 and check the new value
+        if ( (--calldisableSBROM) == 0 ) {
+            //fprintf(stdout,"Disabling SBROM\n");
+            DisableSBROM();
+        }
     }
+    // check on the maskable interrupt 
+    if (delayMaskableInterrupt!=0){
+        if (delayMaskableInterrupt==1){ // 3rd time through set IFF
+            IFF |= IFF>>1 ;  // should copy bit 1 to bit 0 TODO check
+        }
+        delayMaskableInterrupt--;
+    }
+    // debug - displays current instruction and registers 
+    if (traceon==2){
+        // show registers
+        //fprintf(stdout,"doing trace\n");
+        disassembleprogram(PC,stdout,1,tracestartaddress,traceendaddress,AF,BC,DE,HL,SP);
+    }
+
+    // check if we have been requested to only run a number of instructions
+    // first was the original request 1 or more
+    if ((numberInstructions) > 0 ){
+        // then have we counted th correct number of cycles
+        // subtract 1 and returnresult to the if statement
+        if ((--numberInstructionsLocal) < 1 ){
+            break;
+        }
+    }
+  }
 /* make registers visible for debugging if interrupted */
     SAVE_STATE();
     return (PC&0xffff)|0x10000;	/* flag non-bios stop */
 }
+
+void InterruptCheckProcess(){
+
+      int IEI=1;
+      int IEO=1;
+        
+      PIOstatuscheck(IEI,&IEO);
+
+      IEI=IEO;
+      
+      // should now call each devices statuscheck routines
+            // these are to do any stuff needed and ot set the EIO and interrupt flag.
+      // once the IEO ( the IEI for the next device) goes low then the following devices cannot raise an INT
+    
+      // process will set MaskableInterruptRequest > 0 if int required
+    
+}
+
+
+
+int InterruptAcknowledgeProcess(){
+   
+    
+
+    return 0;
+    
+}
+
+
+/*
+ * this calls each device to tell them an RETI is been executed
+ */
+
+void RETIProcess(){
+
+      int IEI=1;
+      int IEO=1;
+        
+      PIOCheckRETI(IEI,&IEO);
+      
+      IEI=IEO;
+      
+      
+      // should now call each devices statuscheck routines
+    
+}
+
+
+
+// end of code
